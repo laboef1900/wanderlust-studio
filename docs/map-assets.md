@@ -10,16 +10,19 @@ The map renders a **Protomaps planet PMTiles file** (`basemap.pmtiles`) and glyp
 > `mapfetch` stage that downloads a whole-world **z0–8** slice (~524 MB) plus the
 > Noto Sans glyph fonts at build time and copies them to `/map-assets`, so the
 > released image is **self-contained** — `docker compose pull && docker compose up -d`
-> serves the map with **zero provisioning**. `PROTOMAPS_BUILD=auto` selects a
-> recent available planet and records `/map/BASEMAP_BUILD`; `MAP_MAXZOOM` and
-> `PMTILES_VERSION` control extraction. `GLYPHS_REVISION` pins the font archive
+> serves the map with **zero provisioning**. `PROTOMAPS_BUILD=auto` (default) probes
+> back up to `PROTOMAPS_MAX_AGE_DAYS` (14) days for the newest planet that still exists
+> and records it in `/map/BASEMAP_BUILD`; `MAP_MAXZOOM` and `PMTILES_VERSION` control
+> extraction. `GLYPHS_REVISION` pins the font archive
 > and is recorded at `/map/GLYPHS_REVISION`; `/map/fonts/OFL.txt` carries its license.
 > If the assets are ever absent, the map degrades to a text/link fallback (the
 > Astro build never depends on them).
 
 You only need the manual recipe below to **change** the basemap: bump the planet
 build for fresher data, raise the zoom for more detail, or serve a custom tileset
-by bind-mounting over `/map-assets` (uncomment the volume in `docker-compose.yml`).
+by adding a read-only bind mount over `/map-assets` to the `app` service in
+`docker-compose.yml` (the file carries only a comment there; no volume line is present by default).
+In the recipe, `<MAP_ASSETS_DIR>` stands for whichever host directory you choose to hold the files.
 
 ## Changing the Basemap (manual recipe)
 
@@ -87,68 +90,70 @@ correct their bytes or certify old-image compliance.
 
 ## Deployment Setup
 
-The host directory holding the assets is named by the `MAP_ASSETS_DIR` env var (default `./map-assets`). `docker-compose.yml` bind-mounts it **read-only** into the `app` container at `/map-assets`, and the app serves it at `/map/` (`MAP_DIR=/map-assets` inside the container). The Astro build is independent of these files — if they are missing, the build still succeeds and the map shows its fallback. Because the mount is a bind mount, dropping the files into the host `MAP_ASSETS_DIR` makes a running container serve them immediately — no image rebuild needed.
+The app serves the directory named by its `MAP_DIR` environment variable at `/map/`; in the
+released image that is `/map-assets` (`MAP_DIR=/map-assets`), which already contains the baked
+basemap and fonts. `docker-compose.yml` defines **no** map volume and no `MAP_ASSETS_DIR`
+variable: the default stack needs nothing here. The Astro build is independent of these files —
+if they are missing, the build still succeeds and the map shows its fallback.
 
-### Production Setup (Server)
+### Overriding the basemap (server)
 
-1. **Place the basemap file** in the host asset dir (whatever `MAP_ASSETS_DIR` points at):
+1. **Prepare the files** in a host directory of your choice (`<MAP_ASSETS_DIR>`):
    ```bash
    cp basemap.pmtiles <MAP_ASSETS_DIR>/basemap.pmtiles
-   ```
-
-2. **Place glyph fonts** (one subdir per font stack, `.pbf` glyphs inside):
-   ```bash
    mkdir -p <MAP_ASSETS_DIR>/fonts
    cp -R "Noto Sans Regular" "Noto Sans Medium" "Noto Sans Italic" <MAP_ASSETS_DIR>/fonts/
    ```
 
-3. **Set the env var** in your `.env` if you don't use the `./map-assets` default:
-   ```
-   MAP_ASSETS_DIR=./map-assets
+2. **Mount it read-only over `/map-assets`** by adding to the `app` service in `docker-compose.yml`:
+   ```yaml
+       volumes:
+         - ./uploader/data:/data
+         - osrm:/osrm
+         - ./map-assets:/map-assets:ro
    ```
 
-4. **That's it — no web-server config.** The `app` container serves `GET /map/basemap.pmtiles` and `GET /map/fonts/<stack>/<range>.pbf` directly (with range support), so a `docker compose up -d` (or just the files appearing on the host, since the mount is live) is all it takes.
+3. **Recreate the container** with `docker compose up -d`. The app serves
+   `GET /map/basemap.pmtiles` and `GET /map/fonts/<stack>/<range>.pbf` directly (with range
+   support); there is no web-server config. A bind mount replaces the whole baked directory, so the
+   fonts, `BASEMAP_BUILD`/`GLYPHS_REVISION` and `fonts/OFL.txt` must be supplied too.
 
 ### Local Development (without full basemap)
 
-For development on a local machine without the full production basemap:
+The Astro dev server (`npm run dev` from `site/`) serves `site/public/` at the site root, so
+`site/public/map/` answers `/map/…` locally. There is no `MAP_ASSETS_DIR` variable.
 
 1. **Create a stub directory:**
    ```bash
    mkdir -p site/public/map/fonts
    ```
 
-2. **Place a small PMTiles file (optional):**
-   - Use a tiny regional extract or a test file to speed up local tile rendering.
-   - Or leave the directory empty — the map will show its text/link fallback.
+2. **Place a small PMTiles file (optional):** a tiny regional extract named
+   `site/public/map/basemap.pmtiles`, or leave the directory empty — the map falls back (below).
 
-3. **Place font files (required for styled labels):**
-   - Copy glyph font files to `site/public/map/fonts/`.
+3. **Place font files (required for styled labels):** copy the glyph stacks to
+   `site/public/map/fonts/<stack>/<range>.pbf`.
 
-4. **Set the environment variable:**
-   ```bash
-   export MAP_ASSETS_DIR=./map-assets
-   ```
-
-5. **Run the dev server:**
+4. **Run the dev server** (requires `DATABASE_URL`, like every Astro command):
    ```bash
    npm run dev
    ```
-   The map will request tiles from `/map/basemap.pmtiles`; if the file is present, the styled basemap loads; otherwise, the fallback displays.
+   The map requests tiles from `/map/basemap.pmtiles`; if the file is present, the styled basemap
+   loads; otherwise, the fallback displays.
 
-> **Note:** `site/public/map/` is **git-ignored**. Store map assets only on the server; keep local copies out of version control.
+> **Note:** `site/public/map/` is **git-ignored**. Keep map assets out of version control.
 
 ## How It Works
 
-- **Map script** (`site/src/scripts/travel-map.ts`) initializes MapLibre GL with a style that points to `/map/basemap.pmtiles`.
-- **Progressive enhancement** — If the tile file fails to load, the script falls back to a text list of trips and a per-story link (rendered in the HTML as a `<noscript>` fallback).
+- **Map script** (`site/src/scripts/travel-map.ts`) initializes MapLibre GL with a style that points to `pmtiles:///map/basemap.pmtiles` and glyphs at `/map/fonts/{fontstack}/{range}.pbf`.
+- **Progressive enhancement** — If the basemap fails to load, the full map swaps to a plain canvas background and still mounts pins, clusters and route overlays. The map page always renders a text list of stories grouped by region beneath the map, and a story's mini-map restores its fallback link if the map cannot initialize.
 - **Build independence** — The Astro build (`npm run build` or `astro build`) does not require the basemap files to succeed. The CSS, JavaScript, and HTML are all static and will render correctly.
-- **Runtime tile loading** — Once deployed, the browser requests tiles from `/map/` as the user pans and zooms. HTTP range requests make it efficient — only the parts of the PMTiles file relevant to the current viewport are downloaded.
+- **Runtime tile loading** — Once deployed, the browser requests tiles from `/map/` as the user pans and zooms. HTTP range requests make it efficient — only the parts of the PMTiles file relevant to the current viewport are downloaded. The app sends `.pmtiles` as `application/octet-stream` and `.pbf` as `application/x-protobuf`, and skips response compression under `/map/`.
 
 ## Troubleshooting
 
-- **Map shows text fallback / blank map:** `/map/basemap.pmtiles` is 404ing (the file isn't in `<MAP_ASSETS_DIR>`) or range requests are blocked. Quick check against a running stack: `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/map/basemap.pmtiles` should be `200`, and `curl -s -o /dev/null -w '%{http_code}\n' -H 'Range: bytes=0-99' http://localhost:3000/map/basemap.pmtiles` should be `206`. If both 404, the asset dir is empty — provision it per "Getting the Basemap" above.
-- **Fonts not loading:** Glyph font files (`.pbf`) are not in `<MAP_ASSETS_DIR>/fonts/` or the style URL is incorrect. Verify the font directory and check the browser's network tab for font requests.
+- **Map shows a plain background / blank map:** `/map/basemap.pmtiles` is 404ing or range requests are blocked. Quick check against a running stack: `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/map/basemap.pmtiles` should be `200`, and `curl -s -o /dev/null -w '%{http_code}\n' -H 'Range: bytes=0-99' http://localhost:3000/map/basemap.pmtiles` should be `206`. If both 404, either the image was built without the assets or a bind mount over `/map-assets` is empty — provision it per "Changing the Basemap" above.
+- **Fonts not loading:** Glyph font files (`.pbf`) are not under `fonts/` in the served directory or the style URL is incorrect. Verify the font directory and check the browser's network tab for font requests.
 - **Local dev without tiles:** This is expected behavior. Drop a small regional PMTiles file into `site/public/map/` to test styled rendering locally.
 
 ## References

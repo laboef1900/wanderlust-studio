@@ -1024,12 +1024,12 @@ Close and Escape dismiss and return focus to the gallery link.
 
 ## Admin authoring: Wanderlust Studio
 
-The approved **Editorial desk** direction (UI mockup 2, based on the owner's CompendiQ
-reference) governs the shared admin shell and Posts list. It is a light operating UI:
-quiet gray navigation, a white workspace, compact rows, and steel-blue navigation and
-New post accents. The public blog's expedition identity is unchanged. Self-hosted
-Inter/IBM Plex Mono remain; the shell and login identify the workspace as **Wanderlust
-Studio**, with **Simon's travel journal** as the descriptor.
+The **Editorial desk** direction governs the shared admin shell and Posts list.
+It is a light operating UI: quiet gray navigation, a frosted white workspace,
+compact rows, and steel-blue navigation and New post accents. The shell gradient
+and control treatments are specified below; the public blog's expedition identity
+is unchanged. Self-hosted Inter/IBM Plex Mono remain. The shell and login identify
+the workspace as **Wanderlust Studio**, with **Simon's travel journal** as the descriptor.
 
 **Writing-first Desk (2026-11-06).** Keep New post in the header after authenticated language
 context resolves, even with a recent draft or unavailable publication observations. Continue
