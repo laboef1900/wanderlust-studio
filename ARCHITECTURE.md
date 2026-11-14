@@ -3,7 +3,8 @@
 This repo is a monorepo for [simonswanderlust.com](https://simonswanderlust.com): a **static**
 Astro blog whose content is authored through a **self-hosted CMS** and built from **Postgres** at
 runtime. Everything runs in Docker on Simon's own server, as **one application container + one
-database container** (WordPress-style). This document describes the components, how content flows
+database container** (WordPress-style), plus two bundled street-routing helper containers
+(`osrm-fetch`, `osrm`) that the blog and admin never depend on. This document describes the components, how content flows
 from keyboard to published page, and the trust boundaries. For the security posture specifically,
 see [SECURITY.md](SECURITY.md).
 
@@ -13,6 +14,8 @@ see [SECURITY.md](SECURITY.md).
 | :-- | :-- | :-- | :-- |
 | `app` | `ghcr.io/laboef1900/wanderlust-studio` (built from the repo-root `Dockerfile`, DHI node base; released under this name from v0.18.1) | Single Fastify 5 process: admin CMS (editor, WordPress import), image service (sharp, host-routed on the img subdomain), public blog static serving, in-process `astro build` on Publish/boot/manual rebuild, `/map/` PMTiles basemap, and DB backups | Public (via host port → reverse proxy / TLS) |
 | `db` | `postgres:18-alpine` | Source of truth for posts, users, and sessions | Internal only (`:5432`) |
+| `osrm-fetch` | `debian:trixie-slim` (digest-pinned in `docker-compose.yml`) | Downloads the Geofabrik extract of each country the stories need (see [Stop routing](#stop-routing-513)); runs as uid 1000 for downloads with a reduced capability set | Internal only (the `osrm` volume) |
+| `osrm` | `ghcr.io/project-osrm/osrm-backend` (digest-pinned in `docker-compose.yml`) | Builds and serves the per-country car/bike/foot graphs, one build at a time, bounded by `OSRM_MEM_LIMIT` | Internal only (reached by `app` on ports 5100–5999) |
 
 The `app` image is released to GHCR by CI and pulled on the server (pinned via required
 `IMAGE_TAG`, with no default). v0.18.1 is the first `wanderlust-studio` release; earlier
@@ -35,7 +38,8 @@ Shared state, all under the **`/data`** volume (bind-mounted from `./uploader/da
   image archives and manifest-matched private GPX original archives.
 - `settings.json` — admin-configurable settings, including backup scheduling, image conversion/quality, and the AI provider registry (no secrets).
 
-Plus the **`pgdata`** volume — Postgres data.
+Plus the **`pgdata`** volume (Postgres data) and the **`osrm`** volume (routing control files,
+extracts and graphs; rebuildable, not backed up).
 
 ```
                          ┌──────────────────────── browser ────────────────────────┐
@@ -1026,7 +1030,7 @@ and the [approved contract](docs/superpowers/specs/2026-10-27-issue-278-first-ru
 
 Full recovery needs the **Postgres content** (`users`, `posts`, `pages`, `media`,
 `media_folders`, `app_secrets`, `comments`, `post_routes`, `site_identity`,
-`site_identity_assets`, `site_language`, `site_nav` and the journey tables in current v14
+`site_identity_assets`, `site_language`, `site_nav` and the journey tables in current v15
 dumps), the
 **`/data` files** (image originals + variants, private GPX originals, settings, site releases,
 MDX exports and backups), and **separately escrowed configuration/key material**. A logical
@@ -1046,7 +1050,7 @@ default bind `./uploader/data` is not sufficient when material lives elsewhere.
 
 | Material | Recovery requirement |
 |---|---|
-| Current `db-*.json.gz` (v14) | Content, accounts/password hashes, comments, media metadata, encrypted `app_secrets`, private `post_routes`, site identity and its logo/favicon assets, language mode, navigation and journeys; validate the selected dump. Gzip is not encryption. |
+| Current `db-*.json.gz` (v15) | Content, accounts/password hashes, comments, media metadata, encrypted `app_secrets`, private `post_routes`, site identity and its logo/favicon assets, language mode, navigation, journeys and stop routes; validate the selected dump. Gzip is not encryption. |
 | Private GPX originals | Keep each retained dump's manifest-referenced `routes-*.tar`, including its declared degraded-source states; include retained private route storage in a host copy. Public simplified tracks and image tars are not substitutes. Originals may retain removed locations/times after detachment or public trimming. |
 | Image originals and variants | Capture the configured image storage and/or every archive needed for the selected recovery point. Replay a complete chain oldest-first into an empty isolated directory. Originals may contain EXIF/GPS; deletion from the media library does not erase old archives or offsite copies. |
 | `settings.json` and any `settings.json.pre-ai-registry` | Operator copy, outside logical dumps. Capture the current settings coherently with the dump; the migration copy is not necessarily current pre-upgrade settings. Provider registry URLs/assignments must match the encrypted credential generation. |
@@ -1120,7 +1124,7 @@ disposable `/data` host path and the credential-free database target printed by 
 `uploader/src/backup.ts` provides app-native logical dumps (no `pg_dump`, no sidecar container):
 
 - **Dump format** — one file per run, `/data/backup/db/db-<YYYYMMDD-HHmmss>.json.gz`, containing
-  `{ "version": 14, "createdAt": <ISO>, "tables": { "users": […], "posts": […], "pages": […], "media": […], "media_folders": […], "app_secrets": […], "comments": […], "post_routes": […], "site_identity": […], "site_identity_assets": […], "site_language": […], "site_nav": […], "journeys": […], "journey_locales": […], "journey_members": […] } }`
+  `{ "version": 15, "createdAt": <ISO>, "tables": { "users": […], "posts": […], "pages": […], "media": […], "media_folders": […], "app_secrets": […], "comments": […], "post_routes": […], "site_identity": […], "site_identity_assets": […], "site_language": […], "site_nav": […], "journeys": […], "journey_locales": […], "journey_members": […] } }`
   with full column fidelity — an integration test diffs the dumped `posts` keys against
   `information_schema.columns`, so a column added in `db.ts` without touching `backup.ts` fails
   the suite instead of silently vanishing from every backup. The table reads run on one
@@ -1132,7 +1136,7 @@ disposable `/data` host path and the credential-free database target printed by 
   the directory, so the finished temp file is published with `link(2)` (fails with `EEXIST`
   where `rename` would clobber) and a taken name advances to the next free second while
   `createdAt` keeps the real time (#114).
-  `version` lets restore reject incompatible dumps; the guard is an **allow-list** (1 to 14), so
+  `version` lets restore reject incompatible dumps; the guard is an **allow-list** (1 to 15), so
   every bump must widen it or newly written dumps become unrestorable. v1 predates `pages`, v2
   predates the media tables, v3 predates `posts.categories`/`tags`/`scheduled_at`, v4 predates
   `posts.featured` (the homepage-cover flag); all still restore and leave what they never
@@ -1209,6 +1213,14 @@ disposable `/data` host path and the credential-free database target printed by 
   The CLI names replacement versus preservation and its pre-restore undo dump includes
   current encrypted secrets. Pause AI/settings edits during restore and reconcile the
   providers in settings.json before resuming: that file is not part of a logical DB dump.
+  v15 (`STOP_ROUTE_DUMP_VERSION = 15`, #513) adds `posts.stop_route` and the optional
+  `published_snapshot.stop_route`. Capture and restore validate both before any write: a stored
+  route must be strictly shaped and identical on both locale rows, and a published route strictly
+  shaped, identical across the pair and never beside a GPX `track`. A stale stored route
+  (for example a leg count that no longer matches the saved stops) is legitimate data and is
+  captured; only Publish judges freshness. Pre-v15 dumps restore `stop_route` as NULL and are
+  refused if they carry route data; a recovery set taken before the column exists is labelled
+  below v15.
   Two ordering details the naive version gets wrong: `media` and `media_folders` are deleted
   **before** `users` (`media.uploaded_by` is `ON DELETE SET NULL`, so the other order silently
   nulls every attribution), and `tags` is `text[]`, which cannot round-trip through the
@@ -1663,11 +1675,11 @@ recovery never implies a cluster downgrade.
    (**Settings → Rebuild site now**, or `POST /rebuild`), then rescan and verify restored content
    before reopening ingress. On failure keep the app stopped and preserve recovery evidence.
 
-Current v14 dumps cover `users`, `posts`, `pages`, `media`, `media_folders`, `app_secrets`,
+Current v15 dumps cover `users`, `posts`, `pages`, `media`, `media_folders`, `app_secrets`,
 `comments`, `post_routes`, `site_identity`, `site_identity_assets`, `site_language`, `site_nav`,
 `journeys`, `journey_locales` and `journey_members`, plus manifest-paired private originals.
 See [Database dumps](#database-dumps) for version-specific absent-field behavior:
-old dumps are not equivalent to v14. `settings.json` and the permanent restore fence are
+old dumps are not equivalent to v15. `settings.json` and the permanent restore fence are
 external; sessions are never restored and every login is invalidated. Prefer the
 `pg_dump`/`psql` path above as primary for full database fidelity; neither database format
 replaces image/private-file recovery, fencing or settings/key escrow.
@@ -1707,7 +1719,7 @@ operator sets `IMAGE_TAG` in their private `.env` to that version and runs
 `docker compose pull && docker compose up -d` (no `dhi.io` login needed there — that's CI-only).
 Compose requires an explicit tag; the example leaves it empty instead of naming a release.
 For an image built from the current source, use the new name and `IMAGE_TAG=local` as
-described in README.
+described in the [installation guide](docs/install.md#build-the-image-locally).
 
 Historical images remain at `ghcr.io/laboef1900/simonswanderlust-app`, including `:0.17.1`.
 Old tags are not available under the new name merely because this source changed.
@@ -1720,7 +1732,7 @@ package names stay unchanged. See the
 Server upgrades follow [App upgrades and supported recovery](#app-upgrades-and-supported-recovery),
 including the coherent pre-upgrade recovery point, reviewed Compose/bootstrap changes and
 immutable app image selection.
-Cut releases through the protected-branch flow in [README](README.md#cutting-a-release);
+Cut releases through the protected-branch flow in [docs/releases.md](docs/releases.md#cutting-a-release);
 generated GitHub notes do not replace the mandatory recovery notes below.
 
 ### Release recovery checklist

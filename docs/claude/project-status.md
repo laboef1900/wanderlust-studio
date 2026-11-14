@@ -4,6 +4,12 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Documentation cleanup (2026-11-14):** Focused the README on the self-hosted travel
+  publishing product, with explicit hosting and privacy tradeoffs. Moved historical
+  release notes and the maintainer checklist to `docs/releases.md`. Retired implemented
+  UI studies and two stale implementation-session prompts; retained design decisions,
+  phase plans, legal inventories and recovery rehearsal evidence.
+
 - **Implemented (PRs #598 and #599, 2026-11-14): Dependabot Vitest compatibility.**
   Pinned the uploader's Vitest runner and V8 coverage provider together at 5.1.0 to
   satisfy their exact peer requirements, then regenerated the lockfile and license
@@ -82,8 +88,8 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
   `docs/superpowers/specs/2026-11-13-github-automation-hardening.md`.
 
 - **Implemented (2026-11-13):** **Software license and source page, capsule account trigger, & thin scrollbars** (`uploader/public/auth.js`, `uploader/public/license.html`, `uploader/public/admin.css`, `uploader/scripts/copy-legal.mjs`). Moved **Software license and source** into `#cmsAccountMenu`'s panel (above **Log out**), linking to `/admin/license.html`; the account trigger is a `44px` capsule showing the avatar, single-line username, role, and chevron; restored `scrollbar-width: thin` on `.cms-workspace` and `.cms-nav-group`; `copy-legal.mjs`'s standalone `/legal/*.html` and `/admin/legal/*.html` indexes also use matching Mist gradient + frosted card styling.
- - **Implemented (2026-11-13):** **Admin Tinted Paper & Capsules (3B)** across all admin pages and dialogs (`uploader/public/admin.css`, mockups in `ui-mockups/story-details-controls.html` and `ui-mockups/editorial-underline-refinements.html`). Inputs, textareas, selects, file inputs, filter triggers (`.admin-select__trigger`), and `.slug-preview` fields use paper wells (`#f6f8fa` / `rgb(255 255 255 / 0.76)` in the Story details rail) with `--radius-lg` top corners and a `1.5px` bottom ledger rule that lifts to `--surface` and `--studio-accent` on focus; custom checkboxes/radios use `--studio-accent` with `forced-colors` fallback; action buttons, command-bar controls, row action links, and `.excerpt-assist__generate` use `999px` capsules while preserving unboxed `.editor-title-input`, segmented tabs, flat list/tab triggers, and menu items.
- - **Implemented (2026-11-13):** **Admin shell gradient & frosted workspace** (`uploader/public/admin.css`, mockup in `ui-mockups/shell-gradient.html`). `.cms-app-shell` uses a neutral-gray rule-of-thirds diagonal gradient (`#d0d4da` bottom-left → `#dbdfe4` at `(1/3, 1/3)` → `#fbfbfd` top-right, with `--shell-muted: #4b525c` for AA contrast in the sidebar/masthead), and `.cms-workspace` uses `68%` translucent frosted white (`backdrop-filter: blur(16px) saturate(112%)`), extended to the Story editor's `.editor-workspace`, `.editor-commandbar`, and `.editor-inspector` backdrop.
+ - **Implemented (2026-11-13):** **Admin Tinted Paper & Capsules (3B)** across all admin pages and dialogs (`uploader/public/admin.css`). Inputs, textareas, selects, file inputs, filter triggers (`.admin-select__trigger`), and `.slug-preview` fields use paper wells (`#f6f8fa` / `rgb(255 255 255 / 0.76)` in the Story details rail) with `--radius-lg` top corners and a `1.5px` bottom ledger rule that lifts to `--surface` and `--studio-accent` on focus; custom checkboxes/radios use `--studio-accent` with `forced-colors` fallback; action buttons, command-bar controls, row action links, and `.excerpt-assist__generate` use `999px` capsules while preserving unboxed `.editor-title-input`, segmented tabs, flat list/tab triggers, and menu items.
+ - **Implemented (2026-11-13):** **Admin shell gradient & frosted workspace** (`uploader/public/admin.css`). `.cms-app-shell` uses a neutral-gray rule-of-thirds diagonal gradient (`#d0d4da` bottom-left → `#dbdfe4` at `(1/3, 1/3)` → `#fbfbfd` top-right, with `--shell-muted: #4b525c` for AA contrast in the sidebar/masthead), and `.cms-workspace` uses `68%` translucent frosted white (`backdrop-filter: blur(16px) saturate(112%)`), extended to the Story editor's `.editor-workspace`, `.editor-commandbar`, and `.editor-inspector` backdrop.
 
 - **Implemented (PR #580 for #579, 2026-11-12):** **Draft with AI** fills an empty story
   language from the author's list of trip events. Browser-direct through a fourth AI
@@ -1072,10 +1078,11 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
   release is announced for third-party installs, run `uploader/scripts/check-image-legal.mjs`
   against each published platform image with `--revision <tag commit>`; see the spec's
   *Release-time artifact gate* (`docs/superpowers/specs/2026-10-27-software-content-brand-rights-design.md`).
-- **Remaining:** Phase 4 = DNS cutover. See `docs/superpowers/plans/` for phase details. Not
-  started, deliberately: #67 (AI authoring — design spec landed 2026-07-28, implementation not
-  started), #72 (Traefik timeouts). #68 (production EXIF audit) was **closed as obsolete**
-  2026-07-29. See `docs/superpowers/plans/IMPLEMENTATION-PROMPT.md` for why each is excluded.
+- **Historical backlog snapshot (2026-07-29; not a current roadmap):** Phase 4 was
+  DNS cutover; #67 (the original AI-authoring proposal) and #72 (host-side Traefik
+  timeout investigation) were deliberately excluded from the backend rework.
+  #68 (production EXIF audit) was closed as obsolete on 2026-07-29. Later entries
+  above record the shipped AI authoring features; use current issues for open work.
 - **Filed out of #85 and deliberately excluded from it** (each with its reason in the §Scope table of
   `docs/superpowers/specs/2026-07-30-wxr-import-hardening-design.md`):
   - **#91 publish gate rejects leftover `wp-content` URLs** — **done 2026-09-06** (see the Done

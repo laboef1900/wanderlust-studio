@@ -294,6 +294,8 @@ must invalidate the same operational evidence offline before traffic resumes.
   and their batch form **`POST /posts/bulk`** (`{action, keys[]}` — the `action` is checked
   against a fixed allow-list and `keys` is capped at 100 per request, since an unbounded array
   is an authenticated N-round-trip amplifier against the process that also serves the blog).
+- **Non-admin authors** may create and edit drafts but **cannot push content to the public site,
+  take it down, or change a published slug** — only admins publish.
 - **Publication observations (#317)** — authenticated post reads/mutation responses expose only
   the exact availability/status/locale-coverage/draft-difference/live-state union. Snapshot
   digests and release stamps never enter author payloads. `GET /publication/summary` is
@@ -629,11 +631,11 @@ Dump v13 requires valid page metadata and a valid navigation singleton; older ve
 explicitly normalize pages and preserve live navigation. Restore summaries warn
 rather than silently drop dangling navigation/colliding content.
 
-Recovery retains the last successful release if a post-commit rebuild fails and
-reports the committed state (`502`, `persisted: true`). Do not roll back to an
-image lacking inherited GPX/privacy/language fixes; use the captured compatible
-recovery set or fix forward. **Verification for this implementation is pending
-the parent integration/type/runtime checks; no production migration was performed.**
+Recovery retains the last successful release if a post-commit rebuild fails: the response is
+HTTP 200 with the committed `saved` value and a `build` outcome with `ok: false`, not an error.
+Do not roll back to an image lacking inherited GPX/privacy/language fixes; use the captured
+compatible recovery set or fix forward. The #287 spec's implementation and public-output
+evidence appendices record the verification for this feature.
 
 ### Media metadata redaction
 
@@ -726,8 +728,6 @@ multi-minute import cannot run `sharp` beside `astro build` either; only its net
 outside the lock. Encode failures are recorded as a **fixed enum** (`decode_failed`, `encode_failed`,
 `write_failed`, `no_space`), never a raw message — libvips embeds filesystem paths in its errors
 and the library UI displays that field.
-  Non-admin authors may create and edit drafts but **cannot push content to the public site,
-  take it down, or change a published slug** — only admins publish.
 
 ## Error handling
 
@@ -1422,8 +1422,8 @@ Canonical unsuffixed hero sources pass the shared snapshot validator before orig
 retargeting and the existing responsive image consumer. The map reads only approved
 public track runs, never private GPX or EXIF, and creates numbered links with DOM text.
 The public route bases remain structurally separate from authenticated `/journey-admin`.
-Actual-target reverse-collision evidence and human approval remain pre-merge gates;
-synthetic database fixtures do not satisfy them.
+Actual-target reverse-collision evidence and human approval were required pre-merge gates
+(see the journeys spec §21); synthetic database fixtures do not satisfy them.
 The #375 H1 predicate reads the shared sanitize-first tree; it does not relax the
 schema, image injection guards, preview CSP or photo privacy controls. Enforcing one
 story H1 is a document-semantics rule, **not an XSS protection**.
@@ -1699,7 +1699,8 @@ preview even though the live site would load it.
 
 ## Single app container
 
-The stack runs as **one application container + Postgres** (WordPress-style), replacing the
+The stack runs as **one application container + Postgres** (WordPress-style; the bundled
+`osrm-fetch`/`osrm` street-routing helpers are covered under *Editor stop routing*), replacing the
 previous four-container split (nginx / a secret-gated build server / uploader / db). This is a
 deliberate trade-off, not an oversight:
 
@@ -1778,8 +1779,8 @@ undo set contains journeys and language; orphan repair never rewrites incompatib
 Keep #398 offline exclusive-owner/fencing admission, source/archive/undo validation and
 cross-mode consent. Rollback is journey-only on a compliant image: retain sharp ≥0.35.5,
 heif ≥1.23.2, rsvg ≥2.63.2 and applicable #369 controls, or fix forward. Tables are not dropped.
-Implementation verification and target-specific API collision evidence remain parent gates;
-this documentation records no production migration or recovery operation.
+Pre-merge implementation verification and target-specific API collision evidence are tracked in
+the journeys spec §21; this documentation records no production migration or recovery operation.
 
 ### Backups
 
@@ -1821,6 +1822,9 @@ this documentation records no production migration or recovery operation.
   `omitted = false` everywhere and `locked_at` derived from the restored publication history;
   a v12+ dump with missing or malformed language metadata is refused before any deletion.
   See [Language modes](#language-modes--reconfirmation-and-leakage-review-282285).
+- Version 15 (`STOP_ROUTE_DUMP_VERSION`, #513) adds the private `posts.stop_route` and any
+  published `stop_route`; see *Editor stop routing* above for validation. Pre-v15 formats restore
+  it as NULL and are refused if they carry route data.
 - **Coherent recovery generations (#296):** freeze new author/admin/public mutations and
   scheduled/storage writers, drain admitted operations and resolve partial provider updates
   before capturing the dump and operator-managed settings/bootstrap files. Hold the freeze
@@ -1880,7 +1884,7 @@ this documentation records no production migration or recovery operation.
   This guidance reconfirms the unchanged [GPX storage-owner boundary](#gpx-routes--private-source-and-public-snapshot):
   exclusive ownership and absence of app sessions are mandatory, never bypassed by killing
   sessions or disabling fencing.
-  Current v14 recovery replaces `users`, `posts`, `pages`, `media`, `media_folders`,
+  Current v15 recovery replaces `users`, `posts`, `pages`, `media`, `media_folders`,
   `app_secrets`, `comments`, `post_routes`, `site_identity`, `site_identity_assets`,
   `site_language`, `site_nav`, `journeys`, `journey_locales` and `journey_members`,
   with manifest-paired private originals. Older versions retain their documented exceptions.
