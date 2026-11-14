@@ -4,6 +4,17 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Resolved dependencies (issue #583, 2026-11-14):** The fixes already landed in
+  PRs [#576](https://github.com/laboef1900/wanderlust-studio/pull/576) and
+  [#592](https://github.com/laboef1900/wanderlust-studio/pull/592). The committed
+  locks resolve `fast-xml-parser` to 5.12.0 in `site/` and 5.12.1 in `uploader/`
+  (direct floor `^5.12.1`); the scoped `@tailwindcss/typography` override resolves
+  `postcss-selector-parser` to 6.1.5. GitHub reports Dependabot alerts #2, #7 and
+  #8 as **fixed**, not dismissed. The third-party inventory was regenerated with
+  the earlier dependency changes. This issue-specific reconciliation preserves
+  those fixes without another dependency update; no parser options, RSS routes,
+  authentication boundaries or persistent data are changed.
+
 - **Documentation cleanup (2026-11-14):** Focused the README on the self-hosted travel
   publishing product, with explicit hosting and privacy tradeoffs. Moved historical
   release notes and the maintainer checklist to `docs/releases.md`. Retired implemented
