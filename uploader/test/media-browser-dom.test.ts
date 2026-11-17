@@ -568,8 +568,8 @@ describe('media-browser upload modal', () => {
     expect(aiPos).toBeGreaterThan(uploadPos);
   });
 
-  it('opens the modal for the current folder, accepts dropped or selected files, and closes', async () => {
-    const page = loadPage({ folders: ['Trips/North'] });
+  it('opens the modal defaulting to the current folder, allows choosing a target folder, accepts dropped or selected files, and closes', async () => {
+    const page = loadPage({ folders: ['Trips/North', 'Trips/South'] });
     await page.flush();
     page.listRequests.shift()!.resolve({ items: [], total: 0 });
     await page.flush();
@@ -580,7 +580,8 @@ describe('media-browser upload modal', () => {
     page.el('uploadOpen').click();
     expect(page.el('uploadDialog').open).toBe(true);
     expect(page.el('fileInput').focused).toBe(true);
-    expect(page.el('uploadFolderNote').textContent).toContain(ui.en['editor.chrome.mediaAllPhotos']);
+    expect(page.el('uploadFolder').value).toBe('');
+    expect(page.el('uploadFolder').children.map((option) => option.value)).toEqual(['', 'Trips/North', 'Trips/South']);
 
     page.el('uploadClose').click();
     expect(page.el('uploadDialog').open).toBe(false);
@@ -592,7 +593,7 @@ describe('media-browser upload modal', () => {
 
     page.el('uploadOpen').click();
     expect(page.el('uploadDialog').open).toBe(true);
-    expect(page.el('uploadFolderNote').textContent).toContain('Trips/North');
+    expect(page.el('uploadFolder').value).toBe('Trips/North');
 
     page.el('dropZone').dispatch('drop', { dataTransfer: { files: [{ name: 'fjord.jpg' }] } });
     expect(page.el('uploadDialog').open).toBe(false);
@@ -602,11 +603,12 @@ describe('media-browser upload modal', () => {
 
     page.el('uploadOpen').click();
     expect(page.el('uploadDialog').open).toBe(true);
+    page.el('uploadFolder').value = 'Trips/South';
     Object.assign(page.el('fileInput'), { files: [{ name: 'ridge.jpg' }] });
     page.el('fileInput').dispatch('change');
     expect(page.el('uploadDialog').open).toBe(false);
     expect(page.uploadRequests).toHaveLength(2);
-    expect(page.uploadRequests[1]!.fields.get('folder')).toBe('Trips/North');
+    expect(page.uploadRequests[1]!.fields.get('folder')).toBe('Trips/South');
   });
 });
 

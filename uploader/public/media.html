@@ -109,11 +109,14 @@
       <!-- Upload photos (media-browser.js): native modal dialog so the library
            starts at the top of the page while keeping drag-and-drop and the
            visible file input keyboard-accessible. -->
-      <dialog id="uploadDialog" class="admin-modal media-upload-dialog" closedby="any" aria-labelledby="uploadTitle" aria-describedby="uploadFolderNote">
+      <dialog id="uploadDialog" class="admin-modal media-upload-dialog" closedby="any" aria-labelledby="uploadTitle">
         <div class="admin-modal__head">
           <h2 id="uploadTitle" class="card-heading">Upload photos</h2>
         </div>
-        <p id="uploadFolderNote" class="help"></p>
+        <label class="media-upload-dialog__folder" for="uploadFolder">
+          <span id="uploadFolderLabel">Folder</span>
+          <select id="uploadFolder"></select>
+        </label>
         <div id="dropZone" class="drop-zone">
           <p><strong>Drop photos here</strong> to upload them into the selected folder.</p>
           <!-- Drag-and-drop is an enhancement; the visible file input is the

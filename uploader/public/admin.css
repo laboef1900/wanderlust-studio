@@ -1438,7 +1438,7 @@ button:disabled { opacity: 0.5; box-shadow: none; cursor: not-allowed; }
 .media-toolbar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-left: auto; }
 .media-toolbar-actions > button { flex: none; }
 dialog.media-upload-dialog { max-width: min(34rem, calc(100vw - 2rem)); }
-.media-upload-dialog .help { margin-bottom: 1rem; }
+.media-upload-dialog__folder { display: flex; flex-direction: column; gap: 0.375rem; margin: 0 0 1rem; }
 .media-upload-dialog .drop-zone { min-height: 10rem; flex-direction: column; padding: 1.75rem 1.25rem; }
 .media-selection-help { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .media-selection-help .media-detail__empty { color: var(--muted); font-size: 0.8125rem; }

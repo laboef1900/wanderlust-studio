@@ -451,25 +451,31 @@
     more.textContent = open ? 'Fewer filters' : 'More filters';
   }
 
+  function fillFolderSelect(select, folders, selected) {
+    select.innerHTML = '';
+    var root = document.createElement('option');
+    root.value = '';
+    root.textContent = '(root)';
+    select.appendChild(root);
+    folders.forEach(function (f) {
+      var opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      select.appendChild(opt);
+    });
+    select.value = folders.indexOf(selected) !== -1 ? selected : '';
+  }
+
   function renderToolbar() {
     $('selCount').textContent = state.selected.length
       ? state.selected.length + ' selected'
       : '';
     $('bulkTools').hidden = state.selected.length === 0;
     var target = $('moveTarget');
-    var previous = target.value;
-    target.innerHTML = '';
-    var root = document.createElement('option');
-    root.value = '';
-    root.textContent = '(root)';
-    target.appendChild(root);
-    state.folders.forEach(function (f) {
-      var opt = document.createElement('option');
-      opt.value = f;
-      opt.textContent = f;
-      target.appendChild(opt);
-    });
-    target.value = state.folders.indexOf(previous) !== -1 ? previous : '';
+    fillFolderSelect(target, state.folders, target.value);
+    var uploadDialog = $('uploadDialog');
+    var uploadFolder = $('uploadFolder');
+    fillFolderSelect(uploadFolder, state.folders, uploadDialog && uploadDialog.open ? uploadFolder.value : state.folder);
     $('pageInfo').textContent = state.total
       ? 'Page ' + state.page + ' of ' + Math.max(1, Math.ceil(state.total / state.pageSize))
       : '';
@@ -690,20 +696,10 @@
     var folderLabel = el('label', null, 'Folder');
     var folderSelect = document.createElement('select');
     folderSelect.id = 'dFolder';
-    var rootOpt = document.createElement('option');
-    rootOpt.value = '';
-    rootOpt.textContent = '(root)';
-    folderSelect.appendChild(rootOpt);
     var folders = state.folders;
     // An acknowledged/current item can name a folder created since this list loaded.
     if (item.folder && folders.indexOf(item.folder) === -1) folders = folders.concat(item.folder);
-    folders.forEach(function (f) {
-      var opt = document.createElement('option');
-      opt.value = f;
-      opt.textContent = f;
-      folderSelect.appendChild(opt);
-    });
-    folderSelect.value = item.folder;
+    fillFolderSelect(folderSelect, folders, item.folder);
     folderLabel.appendChild(folderSelect);
     panel.appendChild(folderLabel);
 
@@ -1609,9 +1605,7 @@
   function openUploadDialog() {
     var dialog = $('uploadDialog');
     if (!dialog || typeof dialog.showModal !== 'function') return;
-    $('uploadFolderNote').textContent = state.folder
-      ? 'Uploading into folder “' + state.folder + '”.'
-      : 'Uploading into “' + copy.mediaAllPhotos + '”.';
+    fillFolderSelect($('uploadFolder'), state.folders, state.folder);
     if (!dialog.open) dialog.showModal();
     $('fileInput').focus();
   }
@@ -1622,7 +1616,8 @@
     var input = $('fileInput');
     var accept = function (files) {
       if (!files || !files.length) return;
-      uploads.add(files, { folder: state.folder });
+      var folder = dialog && dialog.open ? $('uploadFolder').value : state.folder;
+      uploads.add(files, { folder: folder });
       say(copy.uploadStarted.replace('{count}', window.AdminFormat.count(files.length, 'file')));
       if (dialog && dialog.open) dialog.close();
     };
