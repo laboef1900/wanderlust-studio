@@ -248,6 +248,7 @@ function keyLocation(storageDir: string, key: string): { dir: string; base: stri
   const root = resolve(storageDir);
   const target = resolve(root, key);
   const prefix = root.endsWith(sep) ? root : root + sep;
+  // Deliberately redundant behind assertSafeKey; keep it inline on the resolved path, the only form static analysis credits.
   if (!target.startsWith(prefix)) throw new Error('unsafe storage key (resolves outside the storage directory)');
   return { dir: dirname(target), base: basename(target) };
 }

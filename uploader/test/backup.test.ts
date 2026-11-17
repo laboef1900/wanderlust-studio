@@ -61,8 +61,9 @@ describe('resolveBackupDir', () => {
 describe('backupFilePath', () => {
   const names = ['db-20260703-120000.json.gz', 'images-20260703-120000.tar', `routes-20260703-120000-${'0123456789abcdef'.repeat(2)}.tar`];
 
-  it('places every accepted backup name directly inside an absolute, relative or trailing-slash directory', () => {
+  it('places every accepted backup name directly inside the root, an absolute, relative or trailing-slash directory', () => {
     for (const [dir, resolved] of [
+      ['/', ''],
       ['/srv/backup', '/srv/backup'],
       ['/srv/backup/', '/srv/backup'],
       ['data/backup', join(process.cwd(), 'data/backup')],

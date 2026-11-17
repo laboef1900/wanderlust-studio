@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readdir, symlink } from 'node:fs/promises';
 import { readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import sharp from 'sharp';
 import { deleteMedia, imageUsage, imageUsageBatch, listVariantFiles, VARIANT_FILE_RE } from '../src/media-files.js';
 import type { PostUsageRow } from '../src/posts.js';
@@ -149,8 +149,8 @@ describe('deleteMedia', () => {
     expect(left.sort()).toEqual(['hero-2-640.webp', 'notes.txt']);
   });
 
-  it('removes a root-level key\'s files, also from a storage directory written with a trailing slash', async () => {
-    for (const storage of [dir, `${dir}/`]) {
+  it('removes a root-level key\'s files, also from a relative or trailing-slash storage directory', async () => {
+    for (const storage of [dir, `${dir}/`, relative(process.cwd(), dir)]) {
       await put('photo-640.webp');
       await put('photo-orig.jpg');
       await put('photo-b-640.webp');
@@ -248,11 +248,11 @@ describe('listVariantFiles', () => {
     expect((await listVariantFiles(dir, 'trips/x/hero')).map((file) => file.width)).toEqual([640]);
   });
 
-  it('lists a root-level key, also from a storage directory written with a trailing slash', async () => {
+  it('lists a root-level key, also from a relative or trailing-slash storage directory', async () => {
     const webp = await image('webp', 64, 40);
     await put('photo-640.webp', webp);
     await put('photo-b-1280.webp', webp);
-    for (const storage of [dir, `${dir}/`]) {
+    for (const storage of [dir, `${dir}/`, relative(process.cwd(), dir)]) {
       expect(await listVariantFiles(storage, 'photo')).toEqual([{ format: 'webp', width: 640, height: 40, bytes: webp.length }]);
     }
   });
