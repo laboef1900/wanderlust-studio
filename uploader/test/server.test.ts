@@ -40,6 +40,9 @@ import type { MediaImpact } from '../src/media-impact.js';
 import { createEncodeQueue, type EncodeQueue } from '../src/encode-queue.js';
 import { createWorkLock, type WorkLock } from '../src/work-lock.js';
 import { fixedWindowLimiter, accountLockoutLimiter, BACKUP_DOWNLOAD_RATE_LIMIT, GPX_RATE_LIMIT, requireRouteLimiter } from '../src/rate-limit.js';
+import { registerLimitedAuthRoutes } from '../src/auth-routes.js';
+import { registerBackupDownloadRoute } from '../src/backup-import-routes.js';
+import type { ServerContext } from '../src/server-context.js';
 import { createGpxFiles } from '../src/gpx-files.js';
 import type { GpxService, RouteState } from '../src/gpx-service.js';
 import type { SiteBuilder, BuildOutcome } from '../src/build.js';
@@ -5009,7 +5012,10 @@ describe('posts editor', () => {
       const pub = await b.app.inject({ method: 'POST', url: `/posts/${tk}/publish`, cookies: cookie, payload: await publishBody(b.posts, tk) });
       expect(pub.statusCode).toBe(200);
       expect(pub.json().published).toBe(true);
-      expect(spy).toHaveBeenCalledWith('MDX backup for %s failed:', tk, expect.objectContaining({ code: 'ENOTDIR' }));
+      expect(spy).toHaveBeenCalledOnce();
+      const printed = format(...(spy.mock.calls[0] as [string, ...unknown[]]));
+      expect(printed).toContain(`MDX backup for ${tk} failed:`);
+      expect(printed).toContain('ENOTDIR');
     } finally {
       spy.mockRestore();
     }
@@ -6458,6 +6464,26 @@ describe('console logging keeps untrusted values out of the format string', () =
     } finally { spy.mockRestore(); await b.app.close(); }
   });
 
+  it('prints a post key with format directives verbatim when the MDX backup fails after a single publish', async () => {
+    const posts = memoryPostStore();
+    const b = build({ posts, builder: stubBuilder().builder });
+    const { cookie } = await authed(b);
+    const real = await create(b, cookie, 'hostile');
+    const getPublishState = posts.getPublishState.bind(posts);
+    const publish = posts.publish.bind(posts);
+    posts.getPublishState = async (tk) => getPublishState(tk === HOSTILE ? real : tk);
+    posts.publish = async (tk, ...rest) => publish(tk === HOSTILE ? real : tk, ...rest);
+    posts.getPublishedTrack = async () => { throw new Error('track lookup refused'); };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await b.app.inject({ method: 'POST', url: `/posts/${encodeURIComponent(HOSTILE)}/publish`, cookies: cookie, payload: await publishBody(posts, real) });
+      expect(res.statusCode).toBe(200);
+      expect(spy).toHaveBeenCalledOnce();
+      expect(printed(spy)).toContain(`MDX backup for ${HOSTILE} failed:`);
+      expect(printed(spy)).toContain('track lookup refused');
+    } finally { spy.mockRestore(); await b.app.close(); }
+  });
+
   it('prints the key and the error when a bulk action fails unexpectedly', async () => {
     const posts = memoryPostStore();
     const b = build({ posts });
@@ -6762,6 +6788,50 @@ describe('rate-limit boot guards (#619)', () => {
       expect((await optedOut.app.inject({ method: 'GET', url: '/opted-out' })).statusCode).toBe(200);
     } finally {
       await optedOut.app.close();
+    }
+  });
+
+  // The scope guards, pinned where they are installed: the real registration
+  // function runs with a context whose `register` also declares an unlimited
+  // route in the same scope, so only the guard installed by that function can
+  // refuse it.
+  const rogueContext = (app: FastifyInstance, handler: () => Promise<{ ok: boolean }>, method: 'post' | 'get'): ServerContext => ({
+    app: { register: (body: (scope: FastifyInstance) => Promise<void>) => app.register(async (scope) => { await body(scope); scope[method]('/rogue', handler); }) },
+  } as unknown as ServerContext);
+
+  it('registerLimitedAuthRoutes fails the boot for a route in its scope without limitAuth', async () => {
+    const app = Fastify({ logger: false });
+    const stub = (() => {}) as unknown as ServerContext['limitAuth'];
+    registerLimitedAuthRoutes({ ...rogueContext(app, handler, 'post'), cfg: {}, requireAuth: stub, limitAuth: stub } as unknown as ServerContext);
+    try {
+      await expect(app.ready()).rejects.toThrow('POST /rogue must be rate-limited (limitAuth)');
+    } finally {
+      await app.close().catch(() => {});
+    }
+  });
+
+  it('registerBackupDownloadRoute fails the boot for a route in its scope without config.rateLimit', async () => {
+    const app = Fastify({ logger: false });
+    registerBackupDownloadRoute({ ...rogueContext(app, handler, 'get'), cfg: {}, requireAdmin: (async () => {}) } as unknown as ServerContext);
+    try {
+      await expect(app.ready()).rejects.toThrow('GET /rogue must be rate-limited (config.rateLimit)');
+    } finally {
+      await app.close().catch(() => {});
+    }
+  });
+});
+
+describe('the rate-limit plugin limits nothing by itself (#619)', () => {
+  it('never refuses POST /login on its own budget: the in-house limiter is the only throttle', async () => {
+    const b = build({ loginLimiter: { check: () => true } });
+    try {
+      // More than the plugin's default global budget (1000 per minute) from one address.
+      for (let i = 0; i < 1100; i++) {
+        const res = await b.app.inject({ method: 'POST', url: '/login', remoteAddress: '203.0.113.7', payload: { username: 'nobody', password: 'wrong-password' } });
+        expect(res.body, `request ${i}`).not.toContain('too many requests, please wait and try again');
+      }
+    } finally {
+      await b.app.close();
     }
   });
 });

@@ -175,6 +175,7 @@ const NO_RATE_LIMIT_HEADERS = { 'x-ratelimit-limit': false, 'x-ratelimit-remaini
  */
 export const RATE_LIMIT_PLUGIN_OPTIONS: RateLimitPluginOptions = {
   global: false,
+  ipv6Subnet: 64,
   addHeaders: NO_RATE_LIMIT_HEADERS,
   addHeadersOnExceeding: NO_RATE_LIMIT_HEADERS,
   errorResponseBuilder: (_req, context) => Object.assign(new Error('too many requests, please wait and try again'), { statusCode: context.statusCode }),
