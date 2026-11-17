@@ -1,9 +1,8 @@
 # Issue 621: CodeQL production error-level fixes
 
-Status: design revision 2, 2026-11-17. Revision 1 was reviewed independently with changes
-required; this revision resolves them and awaits the reviewer's confirmation (see
-*Approval record*). Risk: **high** (path-traversal guards, backup download route, the
-gallery source parser).
+Status: design revision 2, approved 2026-11-17 by independent AI review under the scoped
+exception below (see *Approval record*). Risk: **high** (path-traversal guards, backup
+download route, the gallery source parser).
 
 Parent: [#621](https://github.com/laboef1900/wanderlust-studio/issues/621). Children:
 [#618](https://github.com/laboef1900/wanderlust-studio/issues/618) (alerts 24, 25, 26),
@@ -253,6 +252,14 @@ inputs with no mismatch. It expects all eight alerts to clear.
 | F5: some D1/D2 cases could not fail; name the backup suite | non-blocking | Accepted. Route-archive traversal and `.`-segment cases dropped; the root-level key case and the `routes-…tar` download kept; suite named. |
 | F6: no polynomial-ReDoS finding expected on the unchanged opener tail | non-blocking | No action. |
 
-### Revision 2
+### Revision 2 (commit `2695f095549731a32f179c00fe8d453518bf137d`): approved
 
-Pending the same reviewer's confirmation.
+Same reviewer and session (`anthropic/claude-opus-5-5`, effort `high`, Orca dispatch
+`ctx_daf8d2125ded`), 2026-11-17. Verdict: **approved**, no findings remaining.
+
+The reviewer re-ran the root-directory check against the revised D1 guard over 11
+directories (including `/`, `//`, `/./`, empty, relative and trailing-slash) and 11
+hostile names: none of the 154 cases was accepted, and all three accepted name kinds still
+resolve to today's path. F2 to F5 are resolved as proposed. The one deviation from F5, a
+root-level key with a trailing-slash storage directory in the D2 tests, was accepted: it
+fails for an implementation that compares against the unresolved directory.
