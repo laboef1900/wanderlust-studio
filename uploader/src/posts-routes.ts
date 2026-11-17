@@ -181,6 +181,7 @@ export function registerPostsRoutes(ctx: ServerContext): void {
         return translationFailure(error, reply);
       },
     }, async (req, reply) => {
+      reply.header('Content-Type', 'application/json; charset=utf-8');
       try {
         if (action === 'prepare') return reply.send(await prepareTranslation(req.body));
         if (!isPlainObject(req.body)) {

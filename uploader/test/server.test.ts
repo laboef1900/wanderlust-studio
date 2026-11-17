@@ -463,6 +463,7 @@ describe('article translation source endpoints', () => {
       const prepared = await b.app.inject({ method: 'POST', url: '/translation/prepare', cookies: cookie, payload: source });
       expect(prepared.statusCode).toBe(200);
       expect(prepared.headers['cache-control']).toBe('no-store');
+      expect(prepared.headers['content-type']).toBe('application/json; charset=utf-8');
       const plan = prepared.json<{ slots: { id: string; text: string }[]; warnings: string[] }>();
       expect(Object.keys(plan).sort()).toEqual(['slots', 'warnings']);
       expect(plan.slots.map(slot => slot.text)).toEqual(expect.arrayContaining(['Titel', 'Kurz']));
@@ -472,6 +473,7 @@ describe('article translation source endpoints', () => {
       });
       expect(validated.statusCode).toBe(200);
       expect(validated.headers['cache-control']).toBe('no-store');
+      expect(validated.headers['content-type']).toBe('application/json; charset=utf-8');
       expect(Object.keys(validated.json()).sort()).toEqual(['bodyMarkdown', 'excerpt', 'images', 'title']);
       expect(validated.json()).toMatchObject({ title: 'Translated Titel', excerpt: 'Translated Kurz', images: {} });
       expect(validated.json().bodyMarkdown).toContain('**Translated Weg**');
