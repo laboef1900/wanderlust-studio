@@ -4,6 +4,19 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Security hardening (issue #621, 2026-11-17): CodeQL error-level findings.** The eight
+  `error`-level code-scanning alerts in production code are fixed without changing behavior.
+  Backup downloads resolve the pattern-validated name inside the backup directory
+  (`backupFilePath` in `uploader/src/backup.ts`), and `deleteMedia` and the versions list
+  resolve a key under `STORAGE_DIR` through one helper (`keyLocation` in
+  `uploader/src/media-files.ts`); both sit behind the existing filename patterns and
+  `assertSafeKey` (#618). The translation prepare/validate routes set an explicit JSON
+  content type (#614). The rich-text editor's trailing-line split is a linear scan and its
+  gallery-opener pattern is unambiguous (#607). The gallery analyzer matches closing fences
+  with a static pattern (#615). No route, schema, data or dependency change. The alerts
+  close when `dev` is rescanned after merge. See
+  `docs/superpowers/specs/2026-11-17-issue-621-codeql-error-level-fixes.md`.
+
 - **Implemented (2026-11-17): Gallery lightbox EXIF display.** Article galleries
   now carry non-location camera and exposure metadata (`camera`, `lens`, focal length,
   aperture, shutter speed, ISO) from the Media library as `data-exif` on `.jgal__item`
