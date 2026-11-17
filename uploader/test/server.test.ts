@@ -6823,11 +6823,14 @@ describe('rate-limit boot guards (#619)', () => {
 
 describe('the rate-limit plugin limits nothing by itself (#619)', () => {
   it('never refuses POST /login on its own budget: the in-house limiter is the only throttle', async () => {
-    const b = build({ loginLimiter: { check: () => true } });
+    // A locked account answers its own 429 before any password hashing, so 1100 requests stay cheap.
+    const accountLimiter = { isLocked: () => true, recordFailure: () => {}, recordSuccess: () => {} };
+    const b = build({ loginLimiter: { check: () => true }, accountLimiter });
     try {
       // More than the plugin's default global budget (1000 per minute) from one address.
       for (let i = 0; i < 1100; i++) {
         const res = await b.app.inject({ method: 'POST', url: '/login', remoteAddress: '203.0.113.7', payload: { username: 'nobody', password: 'wrong-password' } });
+        expect(res.json(), `request ${i}`).toMatchObject({ error: 'account is temporarily locked due to excessive failed login attempts' });
         expect(res.body, `request ${i}`).not.toContain('too many requests, please wait and try again');
       }
     } finally {
