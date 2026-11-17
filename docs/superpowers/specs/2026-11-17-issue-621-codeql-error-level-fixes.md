@@ -270,9 +270,14 @@ fails for an implementation that compares against the unresolved directory.
 ### Integrated diff (head `3189e33543360e7f35e725bc1c0108b963d29177`): approved
 
 Independent review of `origin/dev...HEAD` by a fresh session (`anthropic/claude-opus-5-5`,
-effort `high`, Orca dispatch `ctx_7885bd7f59ea`) using OMP's `/review` flow (the bundled
-`reviewer` agent) plus its own differential runs over about 29 million cases with no
-mismatch. Verdict: **approved**, with two should-fix findings and three nits, all accepted:
-alert 29 is now disclosed here and in the pull request; the gallery-offset table gained rows
-for quote markers directly before the fence and an indented opener; the `SECURITY.md`
-wording, the redundant-guard comments and two test rows were tightened.
+launched at effort `high`, Orca dispatch `ctx_7885bd7f59ea`). It spawned OMP's bundled
+`reviewer` agent, the agent the `/review` command uses, directly rather than through the
+command, verified its findings, and ran its own differential runs over about 29 million
+cases with no mismatch. Verdict: **approved**, with two should-fix findings and three nits,
+all accepted: alert 29 is now disclosed here and in the pull request; the gallery-offset
+table gained rows for quote markers directly before the fence and an indented opener; the
+`SECURITY.md` wording, the redundant-guard comments and two test rows were tightened.
+
+The same reviewer checked the fixes at head `38e2f014f7889814d2b149bc7db346b571e64e12`
+(dispatch `ctx_7086680fd4b4`): **approved**. Both opener mutants it had found are killed by
+the new rows. Its two remaining cosmetic notes are addressed in the following commit.

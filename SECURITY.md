@@ -1139,8 +1139,8 @@ metadata never enter its inference payload. Authenticated, no-store `POST /trans
 `/translation/validate` perform source analysis only: no model calls or writes. Their handler
 sets an explicit `application/json` content type before every send it makes, so echoed
 article text is never served as HTML (#614). The compiler reconstructs from the source,
-validates the complete response and structural fingerprint,
-and preserves image identities, dimensions, gallery order/layout, reference destinations,
+validates the complete response and structural fingerprint, and preserves image
+identities, dimensions, gallery order/layout, reference destinations,
 empty overrides, hidden-caption state and unsupported source. Media remains authoritative;
 only article-local fallback text and occurrence-specific overrides are translatable.
 When local fragment links exist, all headings remain unchanged to preserve generated IDs.
@@ -1424,8 +1424,7 @@ The existing public sanitizer and post-sanitize image/gallery guards remain unch
 **Linear-time source parsing (#607, #615, 2026-11-17).** The editor's trailing-line split is
 a single backward scan, and its gallery-opener pattern has exactly one way to match any
 prefix, so a crafted draft cannot stall the editor tab through these two patterns. The
-gallery analyzer compares closing
-fences in code and builds no pattern from submitted text.
+gallery analyzer compares closing fences in code and builds no pattern from submitted text.
 
 **Public journeys (#310)** have no new public write endpoint. Their loader imports the
 same exported read-only database epoch as stories and language, fails closed on invalid
