@@ -9,11 +9,13 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
   assertion; no production file changed. The DOM harness (`uploader/test/editor-dom-harness.ts`)
   parses markup in one pass instead of removing comments and scripts with patterns first,
   with an identical tree for every input the suites use, and exposes the page's scripts as
-  `editorDocument().scripts`, which the two Desk suites run instead of re-scanning the HTML
-  (#610, #612). The journey catalogue fixture assigns a function instead of evaluating a
-  built code string (#608); the publish-gate oracle decodes the ampersand last (#611); the
-  preview suite counts literal occurrences (#616); the settings suites assert that no
-  off-origin request was made instead of matching a URL prefix (#617). The alerts close
+  `editorDocument().scripts`, which the two Desk suites run instead of re-scanning the HTML;
+  the travel-map suite slices the Astro client script by index (#610, #612). The journey
+  catalogue fixture assigns a function instead of evaluating a built code string (#608); the
+  publish-gate oracle decodes the ampersand last (#611); the preview suite counts literal
+  occurrences (#616); the settings suites assert that no off-origin request was made
+  instead of matching a URL prefix, their mixed-content fixture compares a parsed host, and
+  the body-image suite keys on the table's own column (#617). The alerts close
   when `dev` is rescanned after merge. See
   `docs/superpowers/specs/2026-11-17-issue-623-codeql-test-hygiene.md`.
 

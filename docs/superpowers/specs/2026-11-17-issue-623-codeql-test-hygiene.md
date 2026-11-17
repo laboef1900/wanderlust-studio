@@ -89,8 +89,12 @@ run below proves that for the current suites):
 | 5 | a terminated script inside a tag token (`<a title="<script>x</script>">t</a>`) | removed before tokenizing | part of that token and the text after it |
 
 Row 2 is the defect alerts 11 and 12 describe. Rows 3, 4 and 5 keep markup today's parser
-removes. Outside these five rows, which script elements are skipped is exactly today's
-set: same start tag, same end tag.
+removes. Rows 1 and 2 can also go the other way: where today a comment opener inside a
+script swallowed the end tag, the element and what it wrapped stayed in the tree
+(`<script><img src=x><!--</script>-->` is `SCRIPT` with an `IMG` today and nothing now).
+That is what a browser does with script content, and no suite input has the shape.
+Outside these five rows, which script elements are skipped is exactly today's set: same
+start tag, same end tag.
 
 Considered and rejected: keeping parsed `<script>` elements in the tree, as a browser's
 `innerHTML` does. It would make the `script` half of three existing injection assertions
@@ -150,8 +154,8 @@ assertion is stricter. Line 58 (a pattern built from a label, not flagged) is un
   `parent === 'a'`. Exactly the two rows containing the link have that parent.
 - `uploader/test/admin-actions-dom.test.ts` line 3252: the mixed-content fixture answers
   for host `lan.example` by parsing the URL (no throw on an unparsable value) and comparing
-  `hostname`. It is a fixture, not an assertion; it is called only with the three URLs the
-  test types and answers them as today.
+  `hostname`. It is a fixture, not an assertion; the six URLs that reach it in the suite
+  get the same answer as today.
 - Lines 4368 and 4423: "the page did not contact the provider" becomes "the page made no
   off-origin request", using the rule the suite's own `fetcher` already applies
   (`!url.startsWith('/')`): the list of requested URLs that do not start with `/` must be
@@ -173,8 +177,10 @@ assertion is stricter. Line 58 (a pattern built from a label, not flagged) is un
 
 ## Failure handling
 
-D1 has no new failure path: malformed markup degrades as today (rules 2 and 5). D3 throws
-a named error instead of a `TypeError`. D7's fixture must not throw on an unparsable value.
+D1 keeps today's handling of malformed markup (rules 2 and 5). One new throw exists: the
+`src` of a skipped script is now decoded, so a page whose script `src` holds an invalid
+numeric character reference fails to load in the harness; no page has one. D3 throws a
+named error instead of a `TypeError`. D7's fixture must not throw on an unparsable value.
 The rest are pure expression replacements.
 
 ## Tests
@@ -218,8 +224,10 @@ is met only when `dev` is rescanned after merge, and the owner closes it then.
 - Site: `npm test`, `npx astro check` against the same disposable database.
 - Not applicable: browser and end-to-end checks, `npm run build` (no production, page or
   bundle change). CI still runs them on the pull request.
-- CodeQL on the pull request: alerts 4, 6 to 12 and 19 to 23 not reported on the merge
-  ref and no alert introduced. The alerts close when `dev` is rescanned after merge.
+- CodeQL: the pull-request scan reports only findings on changed lines, so it shows that
+  nothing new is introduced but cannot show alert 19, whose location is an unchanged line.
+  A full scan of the branch (`security.yml` run by hand) must list none of alerts 4, 6 to
+  12 and 19 to 23. The alerts themselves close when `dev` is rescanned after merge.
 - Required checks on the final head: `site · tests + astro check`,
   `uploader · typecheck + tests`.
 
