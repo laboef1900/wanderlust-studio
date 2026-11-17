@@ -237,40 +237,75 @@ export class EditorElement {
   }
 }
 
-function parseMarkup(markup: string, root: EditorElement, state: DomState) {
+interface ScriptElement { src: string | null; text: string }
+
+// One left-to-right pass over the original markup; nothing is rewritten, so
+// pieces around a skipped comment or script can never join into new markup.
+function parseMarkup(markup: string, root: EditorElement, state: DomState, scripts?: ScriptElement[]) {
   const stack = [root];
-  const clean = markup.replace(/<!--[\s\S]*?-->/g, '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
-  for (const token of clean.match(/<[^>]+>|[^<]+/g) ?? []) {
+  const tokens = /<[^>]+>|[^<]+/y;
+  let run = '';
+  const flush = () => {
+    if (!run) return;
+    const text = new EditorElement('#TEXT', state);
+    text.textContent = decode(run);
+    stack.at(-1)!.appendChild(text);
+    run = '';
+  };
+  const attributesOf = (token: string, tag: string) => {
+    const attributes = token.slice(tag.length + 1).replace(/\/?\s*>$/, '');
+    return [...attributes.matchAll(/([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+)))?/g)]
+      .map((attr) => [attr[1]!, decode(attr[2] ?? attr[3] ?? attr[4] ?? '')] as const);
+  };
+  // The script end tag is exactly these nine characters, in any ASCII case.
+  const scriptEnd = (from: number) => {
+    for (let at = markup.indexOf('</', from); at >= 0; at = markup.indexOf('</', at + 1)) {
+      if (markup.slice(at, at + 9).toLowerCase() === '</script>') return at;
+    }
+    return -1;
+  };
+  let cursor = 0;
+  while (cursor < markup.length) {
+    if (markup.startsWith('<!--', cursor)) {
+      const end = markup.indexOf('-->', cursor + 4);
+      if (end >= 0) { cursor = end + 3; continue; }
+    }
+    tokens.lastIndex = cursor;
+    const token = tokens.exec(markup)?.[0];
+    if (token === undefined) { flush(); cursor++; continue; }
+    cursor += token.length;
+    if (!token.startsWith('<')) { run += token; continue; }
+    const tag = token.match(/^<([\w-]+)/)?.[1];
+    if (tag?.toLowerCase() === 'script') {
+      const end = scriptEnd(cursor);
+      if (end >= 0) {
+        scripts?.push({ src: attributesOf(token, tag).findLast(([name]) => name === 'src')?.[1] ?? null, text: markup.slice(cursor, end) });
+        cursor = end + 9;
+        continue;
+      }
+    }
+    flush();
     if (token.startsWith('<!')) continue;
     if (token.startsWith('</')) {
-      const tag = token.slice(2, -1).trim().toUpperCase();
-      const index = stack.findLastIndex((element) => element.tagName === tag);
+      const name = token.slice(2, -1).trim().toUpperCase();
+      const index = stack.findLastIndex((element) => element.tagName === name);
       if (index > 0) stack.length = index;
       continue;
     }
-    const parent = stack.at(-1)!;
-    if (!token.startsWith('<')) {
-      const text = new EditorElement('#TEXT', state);
-      text.textContent = decode(token);
-      parent.appendChild(text);
-      continue;
-    }
-    const tag = token.match(/^<([\w-]+)/)?.[1];
     if (!tag) continue;
     const element = new EditorElement(tag.toUpperCase(), state);
-    const attributes = token.slice(tag.length + 1).replace(/\/?\s*>$/, '');
-    for (const attr of attributes.matchAll(/([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+)))?/g)) {
-      element.setAttribute(attr[1]!, decode(attr[2] ?? attr[3] ?? attr[4] ?? ''));
-    }
-    parent.appendChild(element);
+    for (const [name, value] of attributesOf(token, tag)) element.setAttribute(name, value);
+    stack.at(-1)!.appendChild(element);
     if (!/^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i.test(tag) && !token.endsWith('/>')) stack.push(element);
   }
+  flush();
 }
 
 export function editorDocument(markup: string) {
   const state: DomState = { activeElement: null, closeEvents: [] };
   const root = new EditorElement('#DOCUMENT', state);
-  parseMarkup(markup, root, state);
+  const scripts: ScriptElement[] = [];
+  parseMarkup(markup, root, state, scripts);
   const created: EditorElement[] = [];
   return {
     document: {
@@ -298,6 +333,8 @@ export function editorDocument(markup: string) {
       createTextNode: (text: string) => { const element = new EditorElement('#TEXT', state); element.textContent = text; return element; },
     },
     created,
+    /** Script elements of the parsed document, in document order. They are not in the tree. */
+    scripts: scripts as readonly ScriptElement[],
     flushDialogEvents() { for (const event of state.closeEvents.splice(0)) event(); },
   };
 }
