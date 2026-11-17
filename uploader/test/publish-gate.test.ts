@@ -24,7 +24,8 @@ describe('analyzeBodyContent foreign-origin interpretation', () => {
     const html = (await transformBodyImages(await renderMarkdown(body), {}, ORIGIN, { locale: 'en', inlineSizes: STORY_BODY_SIZES })).replace(/<code(?![^>]*language-gallery)[^>]*>[\s\S]*?<\/code>/g, '');
     const urls = [...html.matchAll(/\b(?:src|srcset)="([^"]*)"/g)]
       .flatMap((m) => (m[1] ?? '').split(',').map((c) => c.trim().split(/\s+/, 1)[0] ?? ''))
-      .map((u) => u.replace(/&#x26;/g, '&').replace(/&#x22;/g, '"'));
+      // `&` goes last: decoding it first would turn the serializer's `&#x26;#x22;` (a literal `&#x22;`) into `"`.
+      .map((u) => u.replace(/&#x22;/g, '"').replace(/&#x26;/g, '&'));
     // Resolved against ORIGIN, like a browser on the page: a reference with no
     // origin of its own (`//host/x`, `\\host/x`) is foreign, `https:host/x` is not.
     return [...new Set(urls.filter((u) => { try { const p = new URL(u, ORIGIN); return (p.protocol === 'https:' || p.protocol === 'http:') && p.origin !== ORIGIN; } catch { return false; } }))];
@@ -39,6 +40,7 @@ describe('analyzeBodyContent foreign-origin interpretation', () => {
     [`<img src="${OLD}/a.jpg" alt=""><img alt='x' src='${OLD}/b.jpg'>`, [`${OLD}/a.jpg`, `${OLD}/b.jpg`]],
     [`<img alt="x > y" src="${OLD}/a.jpg">`, [`${OLD}/a.jpg`]],
     [`<img alt="\`" src="${OLD}/a.jpg" title="\`">`, [`${OLD}/a.jpg`]],
+    [`<img src="${OLD}/a&amp;#x22;.jpg">`, [`${OLD}/a&#x22;.jpg`]],
     // Not an HTML tag to CommonMark (attributes need whitespace): renders as text plus an autolink.
     [`<img alt="x"src="${OLD}/e.jpg">`, []],
     // A raw <picture> is allowed by the sanitizer: its <source srcset> hot-links too.

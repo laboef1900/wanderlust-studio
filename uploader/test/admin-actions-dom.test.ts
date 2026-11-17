@@ -3249,7 +3249,7 @@ describe('settings.html providers', () => {
 
   it('warns about plain HTTP for remote kinds only, and passes mixed-content warnings through', async () => {
     const { el } = await apiPage(settingsResponse(), {
-      mixedContentWarning: (url) => (url.startsWith('http://lan.example') ? 'fixture mixed content' : ''),
+      mixedContentWarning: (url) => (URL.parse(url)?.hostname === 'lan.example' ? 'fixture mixed content' : ''),
     });
     await el('addProvider').click();
     el('providerKind').value = 'custom';
@@ -4365,7 +4365,7 @@ describe('settings.html against the real settings and provider routes', () => {
     expect(el('providerName').value).toBe('Anthropic');
     expect(el('providerBaseUrl').value).toBe('https://api.anthropic.com/v1');
     await el('testProviderForm').click();
-    expect(fetcher.mock.calls.some(([url]) => String(url).startsWith('https://api.anthropic.com'))).toBe(false);
+    expect(fetcher.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/'))).toEqual([]);
     el('providerApiKey').value = 'fixture-created-key';
     await el('providerForm').fire('submit');
     const created = settings.get().aiProviders.find((p) => p.name === 'Anthropic');
@@ -4420,7 +4420,7 @@ describe('settings.html against the real settings and provider routes', () => {
     expect(el('providerName').value).toBe('OpenAI');
     expect(el('providerBaseUrl').value).toBe('https://api.openai.com/v1');
     await el('testProviderForm').click();
-    expect(fetcher.mock.calls.some(([url]) => String(url).startsWith('https://api.openai.com'))).toBe(false);
+    expect(fetcher.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/'))).toEqual([]);
     el('providerApiKey').value = 'fixture-created-key';
     await el('providerForm').fire('submit');
     const created = settings.get().aiProviders.find((p) => p.name === 'OpenAI');

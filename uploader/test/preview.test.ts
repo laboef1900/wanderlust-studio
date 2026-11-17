@@ -57,7 +57,7 @@ describe('renderPreviewHtml', () => {
     const name = locale === 'de' ? 'Foto 1 von 2 öffnen' : 'Open photo 1 of 2';
     expect(html.match(new RegExp(`aria-label="${name}"`, 'g'))).toHaveLength(3);
     expect(html.match(/aria-label="Visible caption"/g)).toHaveLength(3);
-    expect(html.match(new RegExp(`href="${src}-1600.webp"`, 'g'))).toHaveLength(6);
+    expect(html.split(`href="${src}-1600.webp"`).length - 1).toBe(6);
     expect(html.match(/alt=""/g)?.length).toBeGreaterThanOrEqual(6);
     expect(html).not.toContain('Stale');
     expect(html).not.toContain('<script');
