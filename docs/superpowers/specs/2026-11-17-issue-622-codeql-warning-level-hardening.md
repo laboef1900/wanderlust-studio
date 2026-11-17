@@ -434,7 +434,7 @@ Added to the existing suites, asserting results rather than wiring:
 
 T1, T2 and T3 are independent and run in parallel in separate worktrees. T4 shares
 `server.ts` and `test/server.test.ts` with T2, so it starts from a revision that contains
-T2. Integration order: T1, T2, T3, T4.
+T2. Integrated in the order T2, T3, T1, T4 (the first three in the order they finished).
 
 ## Recovery and containment
 

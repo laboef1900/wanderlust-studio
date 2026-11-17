@@ -63,6 +63,13 @@ extracts and graphs; rebuildable, not backed up).
                                └──────────────┘
 ```
 
+**Route registration order (#619).** `buildServer` (`uploader/src/server.ts`) registers three
+child plugin scopes after every other route and route plugin, in one block:
+`POST /setup`, `/login` and `/users/me/password` (`registerLimitedAuthRoutes`), the
+backup download (`registerBackupDownloadRoute`) and the GPX plugin (`registerGpxRoutes`). These
+are the scopes that register `@fastify/rate-limit`. The order is a rule, not a convention: see
+`SECURITY.md`, *Rate limiting*.
+
 ## GPX route boundary (#311)
 
 The [owner-approved GPX specification](docs/superpowers/specs/2026-10-23-gpx-route-import-design.md)
