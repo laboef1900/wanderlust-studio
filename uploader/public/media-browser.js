@@ -19,7 +19,9 @@
   var api = window.MediaApi;
   var copy = window.EditorCopy[document.documentElement.lang === 'de' ? 'de' : 'en'];
   $('mediaIntro').textContent = copy.mediaBrowseHelp;
-  $('mediaUploadLabel').textContent = copy.mediaUpload;
+  $('uploadOpen').textContent = copy.mediaUpload;
+  $('uploadTitle').textContent = copy.mediaUpload;
+  $('uploadClose').textContent = copy.mediaViewerClose;
   $('detailJump').textContent = copy.mediaDetails;
   function revealDetail() {
     $('detail').focus({ preventScroll: true });
@@ -1604,24 +1606,56 @@
     window.addEventListener('pagehide', stopPoll);
   }
 
+  function openUploadDialog() {
+    var dialog = $('uploadDialog');
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    $('uploadFolderNote').textContent = state.folder
+      ? 'Uploading into folder “' + state.folder + '”.'
+      : 'Uploading into “' + copy.mediaAllPhotos + '”.';
+    if (!dialog.open) dialog.showModal();
+    $('fileInput').focus();
+  }
+
   function bindUpload() {
+    var dialog = $('uploadDialog');
     var zone = $('dropZone');
     var input = $('fileInput');
     var accept = function (files) {
       if (!files || !files.length) return;
       uploads.add(files, { folder: state.folder });
       say(copy.uploadStarted.replace('{count}', window.AdminFormat.count(files.length, 'file')));
+      if (dialog && dialog.open) dialog.close();
     };
     input.addEventListener('change', function () { accept(input.files); input.value = ''; });
     ['dragenter', 'dragover'].forEach(function (t) {
       zone.addEventListener(t, function (ev) { ev.preventDefault(); zone.classList.add('is-over'); });
     });
-    ['dragleave', 'drop'].forEach(function (t) {
-      zone.addEventListener(t, function (ev) { ev.preventDefault(); zone.classList.remove('is-over'); });
+    zone.addEventListener('dragleave', function (ev) {
+      ev.preventDefault();
+      if (!ev.relatedTarget || !zone.contains(ev.relatedTarget)) zone.classList.remove('is-over');
     });
     zone.addEventListener('drop', function (ev) {
+      ev.preventDefault();
+      zone.classList.remove('is-over');
       accept(ev.dataTransfer && ev.dataTransfer.files);
     });
+    $('uploadOpen').addEventListener('click', openUploadDialog);
+    $('uploadClose').addEventListener('click', function () { if (dialog) dialog.close(); });
+    if (dialog) {
+      ['dragover', 'drop'].forEach(function (t) {
+        dialog.addEventListener(t, function (ev) { ev.preventDefault(); });
+      });
+      // Fallback light-dismiss for browsers without <dialog closedby="any"> (Safari).
+      if (typeof HTMLDialogElement !== 'undefined' && !('closedBy' in HTMLDialogElement.prototype)) {
+        var outside = function (ev) {
+          var r = dialog.getBoundingClientRect();
+          return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom;
+        };
+        var pressedOutside = false;
+        dialog.addEventListener('pointerdown', function (ev) { pressedOutside = outside(ev); });
+        dialog.addEventListener('pointerup', function (ev) { if (pressedOutside && outside(ev)) dialog.close(); });
+      }
+    }
   }
 
   // Each uncertain operation keeps its own bounded read/control. A listing,
@@ -1842,7 +1876,7 @@
     $('mediaFolders').open = !window.matchMedia('(max-width: 900px)').matches;
     $('emptyChoosePhotos').textContent = copy.mediaChoosePhotos;
     $('emptyChoosePhotos').addEventListener('click', function () {
-      $('dropZone').open = true;
+      openUploadDialog();
       $('fileInput').focus();
       $('fileInput').click();
     });

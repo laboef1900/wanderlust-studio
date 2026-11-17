@@ -454,7 +454,7 @@ describe('media-browser empty states', () => {
     page.el('emptyChoosePhotos').click();
     expect(choose).toHaveBeenCalledOnce();
     expect(page.el('fileInput').focused).toBe(true);
-    expect(page.el('dropZone').open).toBe(true);
+    expect(page.el('uploadDialog').open).toBe(true);
     if (!options.isAdmin) expect(page.el('rescan').hidden).toBe(true);
     expect(page.patches).toHaveLength(0);
   });
@@ -558,6 +558,58 @@ describe('media-browser current folder', () => {
   });
 });
 
+describe('media-browser upload modal', () => {
+  it('places the upload button directly left of Generate details with AI and removes the top upload card', () => {
+    expect(markup).not.toContain('media-upload__disclosure');
+    expect(markup).not.toContain('<section class="card media-upload">');
+    const uploadPos = markup.indexOf('id="uploadOpen"');
+    const aiPos = markup.indexOf('id="aiAll"');
+    expect(uploadPos).toBeGreaterThan(-1);
+    expect(aiPos).toBeGreaterThan(uploadPos);
+  });
+
+  it('opens the modal for the current folder, accepts dropped or selected files, and closes', async () => {
+    const page = loadPage({ folders: ['Trips/North'] });
+    await page.flush();
+    page.listRequests.shift()!.resolve({ items: [], total: 0 });
+    await page.flush();
+
+    expect(page.el('uploadOpen').textContent).toBe(ui.en['editor.chrome.mediaUpload']);
+    expect(page.el('uploadDialog').open).toBe(false);
+
+    page.el('uploadOpen').click();
+    expect(page.el('uploadDialog').open).toBe(true);
+    expect(page.el('fileInput').focused).toBe(true);
+    expect(page.el('uploadFolderNote').textContent).toContain(ui.en['editor.chrome.mediaAllPhotos']);
+
+    page.el('uploadClose').click();
+    expect(page.el('uploadDialog').open).toBe(false);
+
+    page.el('folderTree').querySelectorAll('.folder-btn')[1]!.dispatch('click');
+    await page.flush();
+    page.listRequests.shift()!.resolve({ items: [], total: 0 });
+    await page.flush();
+
+    page.el('uploadOpen').click();
+    expect(page.el('uploadDialog').open).toBe(true);
+    expect(page.el('uploadFolderNote').textContent).toContain('Trips/North');
+
+    page.el('dropZone').dispatch('drop', { dataTransfer: { files: [{ name: 'fjord.jpg' }] } });
+    expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.uploadRequests).toHaveLength(1);
+    expect(page.uploadRequests[0]!.fields.get('folder')).toBe('Trips/North');
+    expect(page.el('uploadQueue').hidden).toBe(false);
+
+    page.el('uploadOpen').click();
+    expect(page.el('uploadDialog').open).toBe(true);
+    Object.assign(page.el('fileInput'), { files: [{ name: 'ridge.jpg' }] });
+    page.el('fileInput').dispatch('change');
+    expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.uploadRequests).toHaveLength(2);
+    expect(page.uploadRequests[1]!.fields.get('folder')).toBe('Trips/North');
+  });
+});
+
 describe('media-browser upload completion', () => {
   it('names a refusal for each file it will not send, sends the rest, and asks to keep the tab open only while sending', async () => {
     const page = loadPage({ locale: 'de' });
@@ -614,10 +666,10 @@ describe('media-browser upload completion', () => {
     page.uploadRequests[0]!.resolve({ key: 'new', status: 'ready' });
     await page.flush();
     runTimers(page.timers);
-    page.el('dropZone').focus();
+    page.el('uploadOpen').focus();
     page.listRequests.shift()!.resolve({ items: [item('existing'), item('new')], total: 2 });
     await page.flush();
-    expect(page.activeElement()).toBe(page.el('dropZone'));
+    expect(page.activeElement()).toBe(page.el('uploadOpen'));
   });
 
   it('keeps a clean focused detail input until typing, but refreshes it after an explicit save', async () => {

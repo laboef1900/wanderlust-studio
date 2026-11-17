@@ -13,22 +13,6 @@
     </header>
 
     <main>
-      <section class="card media-upload">
-        <details id="dropZone" class="media-upload__disclosure help-details">
-          <summary id="mediaUploadLabel"></summary>
-          <div class="drop-zone">
-          <p><strong>Drop photos here</strong> to upload them into the selected folder.</p>
-          <!-- Drag-and-drop is an enhancement; the visible file input is the
-               real control, so the feature is keyboard-operable. -->
-          <label class="drop-zone__pick">
-            <span>Or choose files</span>
-            <input id="fileInput" type="file" accept="image/*" multiple />
-          </label>
-          </div>
-        </details>
-        <div id="uploadQueue" class="upload-queue" hidden></div>
-      </section>
-
       <section class="card media-layout">
         <aside class="media-sidebar">
           <details id="mediaFolders" class="media-folders help-details" open>
@@ -60,8 +44,11 @@
               </select>
             </label>
             <button type="button" id="fMore" class="btn-link filter-reset" aria-expanded="false" aria-controls="fExtra">More filters</button>
-            <button type="button" id="aiAll" class="btn-secondary media-ai-open">Generate details with AI…</button>
-            <button type="button" id="detailJump" class="btn-secondary" hidden></button>
+            <div class="media-toolbar-actions">
+              <button type="button" id="uploadOpen" class="media-upload-open">Upload photos</button>
+              <button type="button" id="aiAll" class="btn-secondary media-ai-open">Generate details with AI…</button>
+              <button type="button" id="detailJump" class="btn-secondary" hidden></button>
+            </div>
             <div class="posts-filters-extra" id="fExtra" hidden>
               <label class="filter-field filter-field--check">
                 <span>Subfolders</span>
@@ -77,6 +64,8 @@
               <button id="rescan" type="button" class="btn-secondary">Rescan disk</button>
             </div>
           </div>
+
+          <div id="uploadQueue" class="upload-queue" hidden></div>
 
           <div class="bulk-bar" id="bulkTools" hidden>
             <span id="selCount" aria-live="polite"></span>
@@ -116,6 +105,28 @@
         <aside id="detail" class="media-detail" tabindex="-1" hidden></aside>
       </section>
       <p id="out" class="page-status" role="status"></p>
+
+      <!-- Upload photos (media-browser.js): native modal dialog so the library
+           starts at the top of the page while keeping drag-and-drop and the
+           visible file input keyboard-accessible. -->
+      <dialog id="uploadDialog" class="admin-modal media-upload-dialog" closedby="any" aria-labelledby="uploadTitle" aria-describedby="uploadFolderNote">
+        <div class="admin-modal__head">
+          <h2 id="uploadTitle" class="card-heading">Upload photos</h2>
+        </div>
+        <p id="uploadFolderNote" class="help"></p>
+        <div id="dropZone" class="drop-zone">
+          <p><strong>Drop photos here</strong> to upload them into the selected folder.</p>
+          <!-- Drag-and-drop is an enhancement; the visible file input is the
+               real control, so the feature is keyboard-operable. -->
+          <label class="drop-zone__pick">
+            <span>Or choose files</span>
+            <input id="fileInput" type="file" accept="image/*" multiple autofocus />
+          </label>
+        </div>
+        <div class="admin-modal__foot">
+          <button type="button" id="uploadClose" class="btn-secondary">Close</button>
+        </div>
+      </dialog>
 
       <!-- Bulk AI details (media-ai.js + media-browser.js). The run saves as it
            goes, so the scope, the fields and the overwrite choice are all stated
