@@ -54,8 +54,17 @@ describe('harness markup parser: comments and scripts', () => {
     ]);
   });
 
+  it('searches for the end tag after the start tag, so one inside the start tag does not end the script', () => {
+    expect(tree('<script x="</script>">a</script>b')).toEqual(['b']);
+  });
+
+  it('takes the last of two src attributes, as setAttribute does for elements', () => {
+    expect(parse('<script src="/a.js" src="/b.js"></script>').scripts).toEqual([{ src: '/b.js', text: '' }]);
+  });
+
   it('keeps today\'s result for a comment that starts as <!-->', () => {
     expect(tree('<!-->a-->b')).toEqual(['b']);
+    expect(tree('<!--->x-->y')).toEqual(['y']);
   });
 
   it('keeps today\'s result for an unterminated comment: it is dropped up to the next >', () => {
