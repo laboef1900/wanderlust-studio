@@ -569,6 +569,7 @@ describe('media client DOM safety', () => {
   });
 
   it('the page loads the split modules rather than inlining the logic', () => {
+    expect(page).toContain('<script src="/admin/admin-select.js"></script>');
     expect(page).toContain('<script src="/admin/media-api.js"></script>');
     expect(page).toContain('<script type="module" src="/admin/media-conditional.js"></script>');
     expect(page).toContain('<script type="module" src="/admin/media-browser.js"></script>');
@@ -586,7 +587,8 @@ describe('media client DOM safety', () => {
     expect(browser).not.toMatch(/dragstart|draggable/);
   });
 
-  it('offers a visible file input, so drag-and-drop stays an enhancement', () => {
+  it('offers a visible file input inside the upload modal, so drag-and-drop stays an enhancement', () => {
+    expect(page).toContain('<dialog id="uploadDialog"');
     expect(page).toContain('<input id="fileInput" type="file"');
     expect(page).not.toMatch(/id="fileInput"[^>]*hidden/);
   });
