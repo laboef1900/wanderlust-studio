@@ -4,6 +4,15 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Implemented (2026-11-17): Gallery lightbox EXIF display.** Article galleries
+  now carry non-location camera and exposure metadata (`camera`, `lens`, focal length,
+  aperture, shutter speed, ISO) from the Media library as `data-exif` on `.jgal__item`
+  at build time (`formatGalleryExif` in `site/src/lib/body-images.ts` and
+  `site/src/lib/postgres-loader.ts`), rendered in the lightbox (`site/src/scripts/gallery-lightbox.ts`)
+  as a compact monospace technical line (`.jgal__lb-exif`) even when gallery captions
+  are hidden. GPS coordinates, capture timestamps, uploader identity and library titles
+  remain excluded from public markup.
+
 - **Resolved dependencies (issue #583, 2026-11-14):** The fixes already landed in
   PRs [#576](https://github.com/laboef1900/wanderlust-studio/pull/576) and
   [#592](https://github.com/laboef1900/wanderlust-studio/pull/592). The committed

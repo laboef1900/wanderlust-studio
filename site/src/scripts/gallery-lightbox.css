@@ -84,6 +84,17 @@
   text-align: center;
 }
 
+.jgal__lb-exif {
+  max-width: 72ch;
+  margin: 0;
+  color: #b8c4d4;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
 .jgal__lb-btn {
   position: absolute;
   display: flex;

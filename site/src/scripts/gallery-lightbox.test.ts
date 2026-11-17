@@ -20,8 +20,8 @@ const labels: GalleryLabels = {
   position: 'Photo {current} of {total}',
 };
 
-const item = (n: number, caption = '') => `
-  <figure class="jgal__item" style="--r:1.5000">
+const item = (n: number, caption = '', exif = '') => `
+  <figure class="jgal__item" style="--r:1.5000"${exif ? ` data-exif="${exif}"` : ''}>
     <a href="https://img.test/p${n}-3000.webp">
       <picture>
         <source type="image/avif" srcset="https://img.test/p${n}-640.avif 640w">
@@ -36,7 +36,7 @@ function mountJustified(count = 3): HTMLElement {
   document.body.innerHTML = `
     <div class="jgal jgal--breakout not-prose">
       <div class="jgal__row">
-        ${Array.from({ length: count }, (_, i) => item(i, i === 0 ? 'Day one' : '')).join('')}
+        ${Array.from({ length: count }, (_, i) => item(i, i === 0 ? 'Day one' : '', i === 0 ? 'FUJIFILM X-T4 · XF16-80mmF4 · 29 mm · f/6.4 · 1/1600 s · ISO 200' : '')).join('')}
       </div>
     </div>`;
   return document.querySelector('.jgal') as HTMLElement;
@@ -179,14 +179,35 @@ describe('initGalleries — lightbox', () => {
     expect(liveText()).toBe('Photo 2 of 2');
   });
 
-  it('carries alt and caption across, and hides an empty caption', () => {
+  it('carries alt, caption and EXIF across, and hides an empty caption or missing EXIF', () => {
     mountJustified(3);
     initGalleries(document, labels);
     click(photos()[0]!);
     expect(dialog()?.querySelector('.jgal__lb-img')?.getAttribute('alt')).toBe('photo 0');
     expect(dialog()?.querySelector('.jgal__lb-cap')?.textContent).toBe('Day one');
+    expect((dialog()?.querySelector('.jgal__lb-cap') as HTMLElement).hidden).toBe(false);
+    expect(dialog()?.querySelector('.jgal__lb-exif')?.textContent).toBe('FUJIFILM X-T4 · XF16-80mmF4 · 29 mm · f/6.4 · 1/1600 s · ISO 200');
+    expect((dialog()?.querySelector('.jgal__lb-exif') as HTMLElement).hidden).toBe(false);
     click(lbButton('next')!);
     expect((dialog()?.querySelector('.jgal__lb-cap') as HTMLElement).hidden).toBe(true);
+    expect((dialog()?.querySelector('.jgal__lb-exif') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('shows EXIF in the lightbox even when gallery captions are hidden', async () => {
+    const src = 'https://img.test/photo';
+    const exif = 'Leica Q2 · 28 mm · f/2.8 · 1/250 s · ISO 400';
+    document.body.innerHTML = await transformBodyImages(
+      `<pre><code class="language-gallery">#captions: hidden\n${src}</code></pre>`,
+      { [src]: { width: 3000, height: 2000, alt: 'Mountain', caption: 'Hidden caption' } },
+      'https://img.test',
+      { locale: 'en', inlineSizes: STORY_BODY_SIZES },
+      new Map([[src, { alt: 'Mountain', caption: 'Hidden caption', exif }]]),
+    );
+    initGalleries(document, labels);
+    click(photos()[0]!);
+    expect((dialog()?.querySelector('.jgal__lb-cap') as HTMLElement).hidden).toBe(true);
+    expect(dialog()?.querySelector('.jgal__lb-exif')?.textContent).toBe(exif);
+    expect((dialog()?.querySelector('.jgal__lb-exif') as HTMLElement).hidden).toBe(false);
   });
 
   it('offers every source format the item had, so the lightbox is not webp-only', () => {
@@ -280,7 +301,7 @@ describe('initGalleries — lightbox', () => {
     },
   );
 
-  it.each(['.jgal__lb-thumb', '.jgal__lb-img', '.jgal__lb-cap'])(
+  it.each(['.jgal__lb-thumb', '.jgal__lb-img', '.jgal__lb-cap', '.jgal__lb-exif'])(
     'keeps the lightbox open when clicking %s',
     (selector) => {
       mountJustified(2);

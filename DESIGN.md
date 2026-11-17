@@ -950,9 +950,13 @@ and in the script-free preview; the lightbox leaves them intact.
 **Lightbox dismissal follows the visible content, not its containers.** In all
 three modes, clicking or tapping the dark space around a photo closes the native
 dialog, even when that space hit-tests to its full-viewport figure. Only the
-photo, caption and controls are excluded from backdrop dismissal — never the
-whole figure or frame. Photo and caption clicks keep it open; arrows navigate;
-Close and Escape dismiss and return focus to the gallery link.
+photo, caption, EXIF technical line (`.jgal__lb-exif`) and controls are excluded
+from backdrop dismissal — never the whole figure or frame. Photo, caption and
+EXIF clicks keep it open; arrows navigate; Close and Escape dismiss and return
+focus to the gallery link. When a gallery photo has camera/lens/exposure metadata
+in the Media library, the lightbox renders a compact monospace line
+(`FUJIFILM X-T4 · XF16-80mmF4 · 29 mm · f/6.4 · 1/1600 s · ISO 200`) beneath the
+caption (even when gallery captions are hidden).
 
 ## Do's and Don'ts
 

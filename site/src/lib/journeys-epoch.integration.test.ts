@@ -23,7 +23,7 @@ describe.skipIf(!databaseUrl)('real exported journey/story/language epoch', () =
         INSERT INTO site_language VALUES (true, 'de', ARRAY['de','en']);
         CREATE TABLE journeys (id uuid PRIMARY KEY, status text, published_snapshot jsonb);
         CREATE TABLE posts (status text, published_snapshot jsonb);
-        CREATE TABLE media (key text, alt_de text, alt_en text, caption_de text, caption_en text);`);
+        CREATE TABLE media (key text, alt_de text, alt_en text, caption_de text, caption_en text, camera text, lens text, focal_length double precision, focal_length_35mm integer, f_number double precision, iso integer, exposure_time double precision);`);
       const snapshot = { version: 1, members: ['a'], locales: { de: { slug: 'old', title: 'Old journey', intro: 'Old intro', heroImage: hero } } };
       await pool.query('INSERT INTO journeys VALUES ($1, $2, $3)', [randomUUID(), 'published', snapshot]);
       await pool.query('INSERT INTO posts VALUES ($1, $2)', ['published', {

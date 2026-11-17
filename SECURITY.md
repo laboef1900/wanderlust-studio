@@ -345,11 +345,13 @@ must invalidate the same operational evidence offline before traffic resumes.
   stories. An author's session-level Media edits can therefore change those descriptions
   without a separate per-article Publish; they cannot trigger the build themselves.
   This is the sole exception to frozen article snapshots, not permission to publish draft
-  bodies, reorder galleries or change image URLs. The build reads only media key and
-  localized alt/caption; preview/audit use the same metadata-only projection. GPS, EXIF,
-  uploader identity and library titles never enter the public overlay. Existing gallery
-  origin equality, dimension/format validation and post-sanitize string coercion/escaping
-  remain mandatory. See the
+  bodies, reorder galleries or change image URLs. The build reads only media key,
+  localized alt/caption and non-location camera/exposure columns (`camera`, `lens`,
+  `focal_length`, `focal_length_35mm`, `f_number`, `iso`, `exposure_time`) for lightbox
+  display (`data-exif` on `.jgal__item`); preview/audit keep the alt/caption-only projection.
+  GPS (`lat`, `lng`), capture time, uploader identity and library titles never enter the
+  public overlay. Existing gallery origin equality, dimension/format validation and
+  post-sanitize string coercion/escaping remain mandatory. See the
   [approved contract and rollback](docs/superpowers/specs/2026-10-19-gallery-library-metadata-design.md).
 - **Post revisions die with the post** (#137). `post_revisions` (up to 20 full-body snapshots per
   post, readable by any authenticated author via `GET /posts/:tk/revisions/:id`) has no foreign

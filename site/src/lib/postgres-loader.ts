@@ -1,6 +1,6 @@
 import type { Loader } from 'astro/loaders';
 import { loaderPool, withLoaderSnapshot } from './loader-pool.js';
-import { STORY_BODY_SIZES, bodyImageUses, transformBodyImagesWithUses, type GalleryUse, type ImageDims } from './body-images.js';
+import { STORY_BODY_SIZES, bodyImageUses, formatGalleryExif, transformBodyImagesWithUses, type GalleryUse, type ImageDims } from './body-images.js';
 import { imageOrigin, retargetImageOrigins, type RemoteHeroImage } from './images.js';
 import { siteLanguage } from './site-language.js';
 import { assertLoaderLanguage } from './build-language.js';
@@ -31,6 +31,13 @@ interface MediaDescriptionRow {
   key: string;
   alt_de: string; alt_en: string;
   caption_de: string; caption_en: string;
+  camera?: string | null;
+  lens?: string | null;
+  focal_length?: number | null;
+  focal_length_35mm?: number | null;
+  f_number?: number | null;
+  iso?: number | null;
+  exposure_time?: number | null;
 }
 
 /**
@@ -145,20 +152,29 @@ export function postgresTripsLoader(): Loader {
                FROM posts WHERE status = 'published' AND published_snapshot IS NOT NULL`,
           );
           const { rows: media } = await client.query<MediaDescriptionRow>(
-            'SELECT key, alt_de, alt_en, caption_de, caption_en FROM media',
+            'SELECT key, alt_de, alt_en, caption_de, caption_en, camera, lens, focal_length, focal_length_35mm, f_number, iso, exposure_time FROM media',
           );
           return { rows, media };
         });
         const enabledRows = rows.filter(({ published_snapshot: row }) => language.locales.includes(row.locale));
         if (enabledRows.length !== rows.length) logger.info(`postgres-trips: excluded ${rows.length - enabledRows.length} disabled-locale entries`);
         const descriptions = {
-          de: new Map<string, { alt: string; caption: string }>(),
-          en: new Map<string, { alt: string; caption: string }>(),
+          de: new Map<string, { alt: string; caption: string; exif?: string }>(),
+          en: new Map<string, { alt: string; caption: string; exif?: string }>(),
         };
         for (const photo of media) {
           const src = `${galleryOrigin}/${photo.key}`;
-          descriptions.de.set(src, { alt: photo.alt_de, caption: photo.caption_de });
-          descriptions.en.set(src, { alt: photo.alt_en, caption: photo.caption_en });
+          const exif = formatGalleryExif({
+            camera: photo.camera,
+            lens: photo.lens,
+            focalLength: photo.focal_length,
+            focalLength35mm: photo.focal_length_35mm,
+            fNumber: photo.f_number,
+            iso: photo.iso,
+            exposureTime: photo.exposure_time,
+          });
+          descriptions.de.set(src, { alt: photo.alt_de, caption: photo.caption_de, ...(exif ? { exif } : {}) });
+          descriptions.en.set(src, { alt: photo.alt_en, caption: photo.caption_en, ...(exif ? { exif } : {}) });
         }
         const manifestPosts: ReleaseManifestV1['posts'] = [];
         for (const { published_snapshot: row, row_digest } of enabledRows) {
