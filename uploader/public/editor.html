@@ -1660,6 +1660,10 @@
           guard.markDirty();
         }
 
+        /** Only absolute http(s) URLs of RFC 3986 characters (plus non-ASCII)
+            may reach an image src; anything else is treated as no hero. */
+        var HERO_PREVIEW_URL = /^https?:\/\/[\w.~:\/?#\[\]@!$&'()*+,;=%\-\u00a1-\uffff]+$/i;
+
         /** Sync the compact preview, the collapsed section's thumbnail and the
             framing disclosure to the stored hero. */
         function sync(locale) {
@@ -1674,7 +1678,7 @@
             heroWidth: parseInt($(locale + 'HeroWidth').value, 10),
             heroFormat: $(locale + 'HeroFormat').value || undefined,
           });
-          if (!url) {
+          if (!url || !HERO_PREVIEW_URL.test(url)) {
             wrap.hidden = true;
             preview.hidden = true;
             thumb.hidden = true;
