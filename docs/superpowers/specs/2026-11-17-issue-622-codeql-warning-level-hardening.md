@@ -1,8 +1,9 @@
 # Issue 622: CodeQL production warning-level hardening
 
-Status: design revision 1, awaiting independent AI review under the scoped exception below
-(see *Approval record*). Risk: **high** (authentication routes and their limiters are
-adjacent, the backup download route, the WXR importer, a new runtime dependency).
+Status: design revision 2, awaiting independent AI review under the scoped exception below
+(see *Approval record*). Risk: **high** (the login, setup and password-change routes move
+into a child plugin scope, the backup download route, the WXR importer and its image scan,
+a new runtime dependency).
 
 Parent: [#622](https://github.com/laboef1900/wanderlust-studio/issues/622). Children:
 [#609](https://github.com/laboef1900/wanderlust-studio/issues/609) (alert 5),
@@ -16,23 +17,25 @@ before this branch was cut; they are prerequisites already in the base, not scop
 
 Remove the eleven `warning`-level CodeQL findings in production code. Three of the four
 changes are behavior-preserving for every input the application produces today. The fourth
-(#619) deliberately adds two request ceilings where there were none, and one runtime
-dependency to enforce them.
+(#619) deliberately adds two request ceilings where there were none, one runtime
+dependency to enforce them, and moves three already-limited routes into a plugin scope
+without changing their code.
 
-Out of scope: any change to the login, setup and password-change limiters or their order
-of checks; the comment limiters; dismissing alerts; CodeQL configuration, query filters or
-suppression comments; schema, data, slug, route path or `/data` layout changes; `site/`.
+Out of scope: any change to the login, setup and password-change limiters, their handlers
+or their order of checks; the comment limiters; dismissing alerts; CodeQL configuration,
+query filters or suppression comments; schema, data, slug, route path or `/data` layout
+changes; `site/`.
 
 ## Trust boundaries and misuse cases
 
 | Surface | Caller | Untrusted input | Misuse the change must stop or bound |
 |---|---|---|---|
-| WXR import → `inlineImage` | admin session, hostile export file | lightbox `href` and title | a backslash, `<` or `>` in the URL ending the Markdown image destination early and turning the rest into markup |
+| WXR import → `inlineImage` | admin session, hostile export file | lightbox `href` and title | a backslash, `<` or `>` in the URL ending the Markdown image destination early, or keeping the image scan from seeing the photo |
 | `console.error` in route and error handlers | author session; any client for the error handler | translation key, bulk action, request method and URL, storage key | request text being interpreted as a `util.format` directive and swallowing or reshaping the logged error |
 | Editor hero preview (`sync`) | author's own browser | the stored hero URL held in a hidden input | a stored URL with a scheme other than http(s) being loaded by the preview images |
 | Settings image preview | admin's own browser | a file the admin picked | none in a conforming browser; the object URL is asserted to be a `blob:` URL |
 | `GET /backups/:name` | admin session | request rate | unbounded repeated opening and streaming of dump and archive files |
-| GPX plugin (`/gpx/imports*`, `/posts/:tk/route*`) | anyone who can reach the app | request rate | unbounded session lookups and upload admissions from one address |
+| GPX plugin (`/gpx/imports*`, `/posts/:tk/route*`) | anyone who can reach the app | request rate | unbounded session lookups and upload admissions from one address. Residual: callers that share an address (or an IPv6 /64) share the budget, so an anonymous flood from the author's own network can hold GPX editing at "busy"; the same exposure `/login` already has |
 
 All findings are defense in depth. None is a known exploitable hole: every surface but the
 GPX session check sits behind an authenticated session, an `<img>` does not execute a
@@ -45,10 +48,16 @@ Read from the CodeQL JavaScript libraries and query tests, and checked against a
 throwaway branch (*Recognition evidence* below):
 
 - `js/missing-rate-limiting` credits a route when a recognized limiter precedes it in the
-  routing tree: `server.register(<import of '@fastify/rate-limit'>)` ahead of the route
-  (including routes installed by a function called later with the same server), or a
-  shorthand route whose options object carries `config.rateLimit`. `addHook` handlers can
+  routing tree: `server.register(<import of '@fastify/rate-limit'>)` ahead of the route, or
+  a shorthand route whose options object carries `config.rateLimit`. `addHook` handlers can
   only be credited by a preceding registration. In-house limiters are never credited.
+- The registration is credited whatever its options are, and for everything installed
+  after it in source order: on the same instance, in functions called later, and, because
+  the model does not know that Fastify plugins are encapsulated, on the parent instance
+  after a child scope that contains it. A registration on the root instance, or in a scope
+  registered early, would therefore credit unlimited routes and switch the query off for
+  them. This design registers the plugin only inside scopes in which every route really is
+  limited, and registers those scopes after every other route (D4).
 - `js/xss-through-dom` treats any write to a DOM `src` property as a sink and stops at a
   test of the written string against a fully anchored regular expression without wildcard
   terms. A check on a parsed `URL` object's `protocol` is not credited.
@@ -61,33 +70,49 @@ throwaway branch (*Recognition evidence* below):
 
 ### Recognition evidence
 
-A throwaway branch (`spike/issue-622-codeql-recognition`, commit
-`2e9da15c87ea50fcee003e70330282a60a9b5ff4`, `origin/dev` plus the constructs of D1 to D4
-without tests or the lockfile) was scanned by this repository's own workflow, dispatched
-manually ([run 44149389667](https://github.com/laboef1900/wanderlust-studio/actions/runs/44149389667),
-CodeQL 2.27.4, analysis 2189059714): **0 results**, against 11 on `dev` at `4034939`. All
-eleven alerts clear and nothing new is reported. The branch is deleted before handoff.
+Three scans of a throwaway branch (`spike/issue-622-codeql-recognition`, `origin/dev` plus
+the constructs below without tests or the lockfile) by this repository's own workflow,
+dispatched manually, CodeQL 2.27.4. `dev` at `4034939` has 11 results.
+
+| Scan | Constructs | Result |
+|---|---|---|
+| 1, commit `2e9da15c87ea50fcee003e70330282a60a9b5ff4`, [run 44149389667](https://github.com/laboef1900/wanderlust-studio/actions/runs/44149389667), analysis 2189059714 | revision 1: one registration on the root instance | 0 results. `/login` and `/users/me/password` are credited although the plugin limits neither. |
+| 2, commit `d8dc6d3cd0dd5d94402c417549f17af7321f8756`, [run 44153055019](https://github.com/laboef1900/wanderlust-studio/actions/runs/44153055019), analysis 2189226893 | three scoped registrations in their original places, plus a canary (a deliberately unlimited file-opening route on the root instance) declared after them | 0 results. The canary is not reported: a scope's registration also credits what follows the scope. |
+| 3, commit `7d4e0ed2d44383c831633d44efaf044d6d03a6c7`, [run 44153989678](https://github.com/laboef1900/wanderlust-studio/actions/runs/44153989678), analysis 2189271263 | D4 as designed here: the three scopes registered after every other route, the canary before them | 1 result: `js/missing-rate-limiting` on the canary. All eleven alerts clear and the query still reports an unlimited route. |
+
+The canary is not part of the implementation. The branch is deleted before handoff.
 
 ### D1. #609, alert 5: complete escaping of the inline image destination
 
 `inlineImage` (`uploader/src/wp-content.ts`) builds `![alt](dest)`. The destination becomes:
 
 ```ts
-const dest = /\s/.test(href)
+const dest = /[\s<>]/.test(href)
   ? `<${href.replace(/[\\<>]/g, '\\$&')}>`
   : href.replace(/[\\()]/g, '\\$&');
 ```
 
 - Bare form: backslash joins the parentheses in the escaped set. CommonMark reads `\\` in a
   destination as one literal backslash, so the parsed URL equals `href`.
-- Angle form: `\`, `<` and `>` are escaped; an unescaped `>` would close the destination.
-  Not flagged, but it is the same incompleteness one branch away.
+- Angle form: now also chosen when `href` contains `<` or `>` (a bare destination may not
+  start with `<`), and `\`, `<` and `>` are escaped inside it; an unescaped `>` would close
+  the destination. Not flagged, but the same incompleteness one branch away.
 - `alt` already escapes the backslash and is unchanged. `lineSafe` has already removed line
   breaks from both fields.
 
-For every `href` without a backslash (and, in the angle form, without `<` or `>`) the output
-is byte-identical. `markdownImages`, the re-host pass, already unescapes ASCII punctuation
-including the backslash, so it yields the original `href` in all cases.
+The image scan must read the new form back. `IMAGE_RE` (same file, used by
+`markdownImages`) only accepts `<[^<>\n]*>` as an angle destination, so an escaped `\<` or
+`\>` is not an image to it today, while CommonMark renderers show one. Its angle branch
+becomes `<((?:\\.|[^<>\\\n])*)>`; the existing unescape step already handles the result.
+
+- For every `href` without a backslash, `<` or `>` the produced Markdown is byte-identical.
+- `markdownImages` returns the original `href` for every output of `inlineImage`, and for
+  Turndown's own escaped angle destinations, which it misses today.
+- One reading changes for existing text: `![a](<https://x/a b\>)`, an angle destination whose
+  closing bracket is escaped. Today it is read as the URL `https://x/a b\`; afterwards it is
+  not an image, which is what CommonMark says. Neither the importer nor Turndown produces it.
+- Callers whose input set changes accordingly: the WXR re-host scan and its pre-flight
+  count, the export's body-image pass, the alt audit and media-sync's alt backfill.
 
 ### D2. #620, alerts 31 and 32: constant format strings
 
@@ -97,15 +122,18 @@ values as `%s` arguments:
 
 | File | Call | Becomes |
 |---|---|---|
-| `posts-routes.ts` (2 sites) | `` `MDX backup for ${tk} failed:`, e `` | `'MDX backup for %s failed:', tk, e` |
+| `posts-routes.ts` (2 sites: publish, bulk publish) | `` `MDX backup for ${tk} failed:`, e `` | `'MDX backup for %s failed:', tk, e` |
 | `posts-routes.ts` | `` `bulk ${action} failed for ${tk}:`, e `` | `'bulk %s failed for %s:', action, tk, e` |
 | `server.ts` (error handler) | `` `unhandled error on ${req.method} ${req.url}:`, err `` | `'unhandled error on %s %s:', req.method, req.url, err` |
 | `media-routes.ts` | `` `could not roll back status for ${key}:`, err `` | `'could not roll back status for %s:', key, err` |
 | `backup.ts` | `` `could not remove stale backup temp file ${name}:`, e `` | `'could not remove stale backup temp file %s:', name, e` |
+| `build.ts` | `` `site build ${attemptId} ${…}`, cause `` | `'site build %s %s', attemptId, <the same status text>, cause` |
 
-Only the three `posts-routes.ts` sites are flagged. The other three are the same defect; the
-error handler's is the only one reachable without a session, so fixing the flagged sites
-alone would leave the worst instance. For string values without `%` the printed line is
+Only the three `posts-routes.ts` sites are flagged. The others are the same construct. The
+error handler's is a live defect and the only one reachable without a session: a request
+for `/posts/m%c3%a4rz` that fails is logged today as `unhandled error on GET /posts/m3%a4rz:`
+with the error and its stack consumed by `%c`. The `build.ts` values are internal; it is
+changed so the rule has no exception. For string values without `%` the printed line is
 identical (`%s` prints a string as is; the error is still appended after one space).
 
 ### D3. #613, alerts 13 to 16: only expected URL schemes reach `src`
@@ -140,69 +168,96 @@ previewUrls = [originalUrl, encodedUrl];
 if (!/^blob:[\w.~:\/?#\[\]@!$&'()*+,;=%\-]+$/.test(originalUrl)) { /* clearPreview(), existing failure text */ return; }
 ```
 
-`createObjectURL` returns a `blob:` URL in every conforming browser, so the branch is not
-expected to run; it makes the invariant explicit and is the form the analysis credits. On
-failure the URLs are revoked through the existing `clearPreview()` and the existing generic
-preview-failure message is shown.
+`createObjectURL` returns a `blob:` URL in every conforming browser (`blob:<origin>/<uuid>`,
+`blob:null/<uuid>`), so the branch is not expected to run; it makes the invariant explicit
+and is the form the analysis credits. On failure: `clearPreview()` (revokes both URLs, hides
+both panes and the result, removes both `src`), then
+`$('previewOut').textContent = refusal('generate the preview')`, which reads
+"Could not generate the preview." and is the handler's existing refusal wording.
 
 This is interface code with no visual, copy, layout or interaction change, so no design
 pass applies; the implementer still follows the existing hidden-state and message patterns.
 
-### D4. #619, alerts 27 to 30: `@fastify/rate-limit` for two new ceilings
+### D4. #619, alerts 27 to 30: `@fastify/rate-limit`, registered only where routes are limited
 
-**Dependency.** `@fastify/rate-limit` `^11.2.2` (MIT, the Fastify organization's plugin,
-peer `fastify 5.x`; brings `@lukeed/ms`, `ip-address`, `toad-cache` and `fastify-plugin`).
-The uploader lockfile and `docs/third-party-inventory.json` are regenerated; the evidence
-file is extended only if the generator or `legal-assets.test.ts` requires it.
+**Dependency.** `@fastify/rate-limit` `^11.2.2` (MIT, the Fastify organization's plugin; it
+declares no peer dependency and checks `fastify 5.x` at load). Of its four dependencies
+only `ip-address` (MIT, no dependencies) is new to the uploader lockfile; `@lukeed/ms`,
+`fastify-plugin` and `toad-cache` are already there through Fastify. The lockfile and
+`docs/third-party-inventory.json` are regenerated.
 
-Why a dependency at all: the GPX finding is on an `addHook('onRequest')` handler, which
-only a preceding plugin registration can clear. The alternatives were rejected: moving the
-session check into per-route options hides it from the analysis and gives up the
-plugin-scope guarantee that every GPX route is authenticated; a custom CodeQL model or
-query filter changes the guardrail; dismissal is the owner's call, not this change's.
+Why a dependency at all: the GPX finding is on an `addHook('onRequest')` handler, which only
+a preceding plugin registration can clear. The alternatives were rejected: moving the
+session check into per-route options gives up the scope-wide guarantee that every GPX route
+is authenticated; a custom CodeQL model or query filter changes the guardrail; dismissal is
+the owner's call, not this change's.
 
-**Registration.** `buildServer` registers the plugin once on the root instance, before any
-route or route plugin:
+**Shared options** (`RATE_LIMIT_PLUGIN_OPTIONS`, exported from `uploader/src/rate-limit.ts`
+with the two budgets below):
 
 ```ts
-app.register(rateLimit, {
+{
   global: false,
   addHeaders: { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false },
   addHeadersOnExceeding: { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false },
   errorResponseBuilder: (_req, context) => Object.assign(new Error('too many requests, please wait and try again'), { statusCode: context.statusCode }),
-});
+}
 ```
 
-- `global: false`: no route is limited unless it opts in. Nothing changes for the blog, the
-  image host, the basemap, static admin pages or any other route.
+- `global: false`: a registration limits nothing by itself.
 - Allowed responses gain no header. A refusal carries `Retry-After` only.
-- Store: the plugin's in-memory LRU (5000 keys), key `req.ip` (IPv6 grouped by /64), so the
+- Stores are the plugin's in-memory LRUs, 5000 keys each (one per limiter: the GPX hook, the
+  download route and its `HEAD` twin), keyed on `req.ip` with IPv6 grouped by /64. The
   trusted-proxy rules for `req.ip` apply unchanged. One process, like the in-house limiters.
-- Child plugin scopes loaded after it inherit its `onRoute` hook and its `rateLimit`
-  decorator. Root routes declared synchronously do not; none of them uses it.
 
-**GPX plugin** (`gpx-routes.ts`): a limiter hook is added to the plugin scope in front of
-the existing session-and-origin hook:
+The plugin is **not** registered on the root instance. It is registered in exactly three
+child scopes, and in each of them every route is rate-limited by construction, so what the
+analysis credits inside them is true. Because the credit also reaches whatever is declared
+after a scope, `buildServer` registers the three scopes in one block after every other
+route and route plugin, directly before `setNotFoundHandler`:
 
 ```ts
+// Rate-limited scopes, last on purpose (see SECURITY.md, Rate limiting).
+registerLimitedAuthRoutes(ctx);
+registerBackupDownloadRoute(ctx);
+if (cfg.gpx) registerGpxRoutes(app, { gpx: cfg.gpx, requireAuth });
+```
+
+Fastify matches routes independently of declaration order and each scope is created during
+boot, after all synchronous statements of `buildServer`, so moving these three
+registrations changes neither matching nor what the scopes inherit. The remaining limit of
+the approach is stated plainly in the block's comment and in `SECURITY.md`: a route declared
+after this block would be credited by the analysis without being limited, so the block
+stays last.
+
+**1. GPX plugin** (`gpx-routes.ts`). Inside the existing plugin body, after the error
+handler and in front of the existing session-and-origin hook:
+
+```ts
+await routes.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
 routes.addHook('onRequest', routes.rateLimit({ ...GPX_RATE_LIMIT, errorResponseBuilder: () => new GpxError('gpx_busy', 429) }));
 ```
 
 - `GPX_RATE_LIMIT = { max: 300, timeWindow: 60_000 }` per address, shared by all GPX routes.
   An editor session issues a handful of GPX requests per action; 300 a minute is an abuse
   ceiling, not a throttle.
-- It runs before the session lookup, so it bounds exactly the work the finding names, for
-  anonymous and signed-in callers alike, and before any body is read.
+- It runs before the session lookup and before any body is read, so it bounds exactly the
+  work the finding names, for anonymous and signed-in callers alike. That is deliberate and
+  has the residual named in the trust table.
 - A refusal is the existing `gpx_busy` 429 through the plugin's error handler
   (`cache-control: no-store`), which the editor already shows as "busy, try again".
-- `registerGpxRoutes` now requires the plugin on the instance it is given; this is stated
-  in its doc comment, and the one test that mounts it on a bare instance registers it.
+- Every route of the scope passes the scope hook, so every credited route is limited.
+  `registerGpxRoutes` stays self-contained; its doc comment notes that the scope hook marks
+  the request as limited, so a per-route `config.rateLimit` added later in this scope would
+  be skipped by the plugin.
 
-**Backup download** (`backup-import-routes.ts`): `GET /backups/:name` moves, body unchanged,
-into a child scope so the per-route option takes effect:
+**2. Backup download** (`backup-import-routes.ts`). `GET /backups/:name` moves, handler
+unchanged, out of `registerBackupAndImportRoutes` into a new exported
+`registerBackupDownloadRoute(ctx)`, which declares it in a child scope of its own:
 
 ```ts
 app.register(async (scope) => {
+  await scope.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
   scope.get<{ Params: { name: string } }>('/backups/:name', {
     config: { rateLimit: { ...BACKUP_DOWNLOAD_RATE_LIMIT, hook: 'preHandler' } },
     preHandler: requireAdmin,
@@ -217,32 +272,65 @@ app.register(async (scope) => {
 - A refusal is `429 {"error":"too many requests, please wait and try again"}` through the
   root error handler, with `Retry-After`. (While storage is read-only that handler answers
   every error, this one included, with its read-only reply. Unchanged behavior.)
-- The child scope inherits the root hooks, decorators and error handler; the route path,
-  guards, headers and handler are otherwise identical. Fastify's implicit `HEAD` twin gets
-  its own bucket of the same size.
+- Fastify's implicit `HEAD` twin is limited too, with its own bucket: at most 30 `GET` plus
+  30 `HEAD` file opens per address per minute.
+- The scope holds this one route.
 
-Both constants live in `uploader/src/rate-limit.ts` next to the in-house limiters.
+**3. Login, setup and password change** (`auth-routes.ts`). `POST /setup`, `POST /login` and
+`POST /users/me/password` move, options and handlers unchanged and together with the setup
+lock, out of `registerAuthRoutes` into a new exported `registerLimitedAuthRoutes(ctx)`,
+which declares them in one child scope:
 
-**`POST /login` and `POST /users/me/password`** are not edited. They stay limited by
-`limitAuth`, `accountLimiter` and `passwordLimiter`, whose order of checks is pinned by
-tests. The analysis credits them because the root registration precedes
-`registerAuthRoutes`; the registration comment says that it must stay ahead of route
-registration for both reasons (child scopes, and the analysis).
+```ts
+app.register(async (limited) => {
+  await limited.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
+  limited.addHook('onRoute', (route) => {
+    if (![route.preHandler].flat().includes(limitAuth)) throw new Error(`${route.method} ${route.url} must be rate-limited by limitAuth`);
+  });
+  limited.post('/setup', { preHandler: limitAuth }, …);
+  limited.post('/login', { preHandler: limitAuth }, …);
+  limited.post('/users/me/password', { preHandler: [limitAuth, requireAuth] }, …);
+});
+```
+
+- These routes stay limited by `limitAuth`, `accountLimiter` and `passwordLimiter` exactly
+  as today; the plugin instance in this scope limits nothing. It is there because the
+  analysis cannot model the in-house limiters: the registration is what makes it credit
+  three routes that are limited. A code comment says exactly that.
+- The `onRoute` guard makes the credit true by construction: a route can only be declared in
+  this scope if it carries `limitAuth`; anything else fails the boot.
+- The other routes of the file (`/login` page, `/auth/*`, `/logout`, `/users*`) stay in
+  `registerAuthRoutes` on the root instance, before the block, and are not credited.
+
+A child scope is created when the boot sequence reaches it, after every synchronous
+statement of `buildServer` has run and after the plugins registered before it have loaded.
+It therefore inherits the root hooks (including both `onSend` hooks), the error handler,
+the not-found handler, the request decorator, the cookie and multipart plugins and the
+content-type parsers. Route paths, guards and handlers are otherwise identical.
+
+**No silent no-op.** On the root instance a per-route `config.rateLimit` would be ignored by
+the plugin and still credited by the analysis. `buildServer` adds, before any route, an
+`onRoute` hook that throws when a route declares `config.rateLimit` on an instance without
+the plugin's `rateLimit` decorator. A declared limit that is not enforced fails the boot.
 
 ## Preservation invariants
 
 1. D1 to D3: for every value the application produces today, output is byte-identical
    (Markdown, log lines, DOM state). The exceptions are exactly the hostile inputs named in
    each section.
-2. `/login`, `/setup`, `/users/me/password`, `/comments`: code, limiter instances, budgets,
-   order of checks, statuses and bodies unchanged. Their existing tests are not edited.
+2. `/login`, `/setup`, `/users/me/password`, `/comments`: handlers, route options, limiter
+   instances, budgets, order of checks, statuses, bodies and headers unchanged. The first
+   three are declared in a child scope instead of on the root instance; nothing else about
+   them moves. Their existing tests are not edited and stay green.
 3. Within the new budgets, every GPX and backup-download response is byte-identical to
    today's, headers included.
 4. `GET /backups/:name` keeps `requireAdmin` first, the three filename patterns,
    `backupFilePath`, `O_NOFOLLOW`, the regular-file and `nlink` checks and its error mapping.
 5. Every GPX route stays behind the plugin-scope session-and-origin hook.
 6. No route path, slug, schema, stored data or `/data` layout changes. No suppression
-   comment, no CodeQL configuration change, no alert dismissal.
+   comment, no CodeQL configuration change, no alert dismissal. The analysis keeps reporting
+   unlimited expensive routes declared before the block of rate-limited scopes, which is
+   every other route (proved by scan 3).
 7. Patterns the scanners flag are not copied into tests.
 
 ## Failure handling
@@ -250,32 +338,48 @@ registration for both reasons (child scopes, and the analysis).
 - D1, D2: pure string changes; no new failure path.
 - D3: a rejected hero URL is the existing "no thumbnail" state; a rejected object URL is the
   existing preview-failure state with both URLs revoked.
-- D4: the store is in-process memory and cannot fail independently. A plugin that fails to
-  load fails the boot loudly. A refused request has done no work: the GPX refusal precedes
-  the session lookup and body parsing; the download refusal precedes opening the file.
+- D4: the stores are in-process memory and cannot fail independently. A plugin that fails
+  to load, a route without `limitAuth` in the login scope, or a `config.rateLimit` declared
+  outside a plugin scope fails the boot loudly. A refused request has done no work: the GPX
+  refusal precedes the session lookup and body parsing; the download refusal precedes
+  opening the file. The plugin's hook refuses by throwing, which Fastify routes to the error
+  handler without running the handler, also with an asynchronous `onSend` hook present.
 
 ## Tests
 
 Added to the existing suites, asserting results rather than wiring:
 
 - D1 (`test/wp-content.test.ts`): a degraded lightbox anchor whose `href` contains a
-  backslash, `\)`, a trailing backslash, and (with whitespace) `<`, `>` and a backslash;
-  each asserts the produced Markdown and that `markdownImages` returns the original URL.
-  Existing cases stay green unedited.
-- D2: for each call path that a test can reach (MDX backup failure on save, bulk action
-  failure, the error handler), a value containing a format directive (`%s`, `%o`, `%%`) is
-  logged verbatim and the error object is still passed; asserted on what `console.error`
+  backslash, `\)`, a trailing backslash, a leading `<` without whitespace, and (with
+  whitespace) `<`, `>` and a backslash; each asserts the produced Markdown and that
+  `markdownImages` returns the original URL. `markdownImages` directly: a Turndown-style
+  escaped angle destination is found, and the escaped-closing-bracket text above is not an
+  image. Existing cases stay green unedited.
+- D2: for each call path that a test can reach (MDX backup failure on publish, bulk action
+  failure, the error handler), a value containing format directives is logged verbatim and
+  the error is still printed; the error-handler case uses a failing request for a URL with
+  lowercase percent-encoding such as `/posts/m%c3%a4rz`. Asserted on what `console.error`
   would print, not on the argument list.
-- D3 (DOM suites): hero preview shows for an `https:` and an `http:` hero and is hidden with
-  `src` removed for `javascript:`, `data:`, a relative path and a URL with a space or quote;
-  the settings preview still shows both panes for a picked file.
-- D4 (`test/server.test.ts`, GPX suite): GPX — 300 requests from one address pass the
-  limiter (anonymous ones answer 401), the next is `429 gpx_busy` with `Retry-After` and
-  `no-store`, a signed-in request from that address is refused too, another address is
-  unaffected, allowed responses carry no `x-ratelimit-*` header. Backup download — 30 admin
-  requests answer as today, the 31st is 429 with the body above; anonymous and non-admin
-  requests never consume the budget; `GET /backups` and `POST /backups` are unaffected.
-  The budgets are imported from `rate-limit.ts`, not repeated.
+- D3 (DOM suites): hero preview shows for an `https:` and an `http:` hero, for a base with a
+  port, an IPv6 literal host, an IDN host and a trailing-slash base; it is hidden with `src`
+  removed from all three images for `javascript:`, `data:`, a relative path and a URL with a
+  space or quote, including when a previewing hero is replaced by a rejected one. Settings:
+  both panes still show for a picked file; with `createObjectURL` stubbed to return a
+  non-`blob:` value, both URLs are revoked, both panes and the result are hidden with `src`
+  removed, and the message above is shown.
+- D4 (`test/server.test.ts`, GPX suite). GPX: 300 requests from one address pass the limiter
+  (anonymous ones answer 401), the next is `429 gpx_busy` with `Retry-After`, `no-store` and
+  no `x-ratelimit-*` header; a signed-in request from that address is refused too and the
+  refused requests never reach the session store (counted); another address is unaffected;
+  allowed responses carry no `x-ratelimit-*` header. Backup download: 30 admin requests
+  answer as today, the 31st is 429 with the body above, `Retry-After` and no
+  `x-ratelimit-*`; `HEAD` is limited with its own bucket; anonymous and non-admin requests
+  never consume the budget; the root `onSend` headers are still present; `GET /backups` and
+  `POST /backups` are unaffected; an unrelated authenticated route is not limited. Boot
+  guards: a route without `limitAuth` declared in the login scope, and a root route
+  declaring `config.rateLimit`, each fail the boot. The budgets are imported from
+  `rate-limit.ts`, not repeated. The existing login, setup and password-change tests are the
+  preservation proof for the scope move and are not edited.
 
 ## Verification
 
@@ -297,11 +401,11 @@ Added to the existing suites, asserting results rather than wiring:
 
 | Task | Issue | Files | Depends on |
 |---|---|---|---|
-| T1 | #609 | `uploader/src/wp-content.ts`, `test/wp-content.test.ts` | approval |
-| T2 | #620 | `uploader/src/posts-routes.ts`, `media-routes.ts`, `backup.ts`, `server.ts` (error handler line), their tests | approval |
+| T1 | #609 | `uploader/src/wp-content.ts` (`inlineImage`, `IMAGE_RE` and its comment), `test/wp-content.test.ts` | approval |
+| T2 | #620 | `uploader/src/posts-routes.ts`, `media-routes.ts`, `backup.ts`, `build.ts`, `server.ts` (error handler line), their tests | approval |
 | T3 | #613 | `uploader/public/editor.html`, `settings.html`, DOM tests | approval |
-| T4 | #619 | `uploader/package.json`, lockfile, `src/rate-limit.ts`, `server.ts` (registration), `gpx-routes.ts`, `backup-import-routes.ts`, tests, `docs/third-party-inventory.json` | approval, T2 integrated |
-| T5 | all | integration, `SECURITY.md`, `ARCHITECTURE.md`, `docs/claude/project-status.md`, this spec | T1 to T4 |
+| T4 | #619 | `uploader/package.json`, lockfile, `src/rate-limit.ts`, `server.ts` (root `onRoute` guard, the block of rate-limited scopes), `gpx-routes.ts`, `backup-import-routes.ts`, `auth-routes.ts` (moving the three routes only), tests, `docs/third-party-inventory.json` | approval, T2 integrated |
+| T5 | all | integration, `SECURITY.md` (rate limiting, the GPX residual, why the rate-limited scopes are registered last), `ARCHITECTURE.md`, `docs/claude/project-status.md`, this spec; pull request body with `Closes #609`, `#613`, `#619`, `#620`, `#622` | T1 to T4 |
 
 T1, T2 and T3 are independent and run in parallel in separate worktrees. T4 shares
 `server.ts` and `test/server.test.ts` with T2, so it starts from a revision that contains
@@ -327,3 +431,30 @@ they reset after one minute, and `docker compose restart app` clears them immedi
 | **Expiry** | At final pull-request handoff or abandonment. Human approval before merge is not waived. |
 
 ## Approval record
+
+### Revision 1 (commit `36373201bc6efa8e5c614808d2d69979d0a9e49c`): changes required
+
+Reviewer: independent Orca worker, OMP, `anthropic/claude-opus-5-5`, launched at effort
+`high` (Orca dispatch `ctx_1f9ff124b84c`; the reviewer's harness does not display the level
+to it). The reviewer did not author the design. The first-choice reviewer,
+`openai-codex/gpt-6.1-sol` at `high` (dispatch `ctx_7ff9111d29a8`), could not run: the
+provider's usage limit was exhausted.
+
+The reviewer read the source, the CodeQL models and the plugin, re-queried the first scan,
+and ran its own experiments against Fastify 5.12.8, the packed plugin and three Markdown
+parsers.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| B1: `markdownImages` does not read back the new escaped angle form, so the photo would render but never be re-hosted | blocking | Accepted. `IMAGE_RE`'s angle branch accepts backslash escapes; the one changed reading and the affected callers are stated in D1; tests in both directions. |
+| B2: a root registration credits every uploader route, limited or not | blocking | Accepted, option (a), and taken further. No root registration; three scopes in which every route is limited by construction. Scan 2 showed that scoping alone is not enough (a scope also credits what follows it), so the scopes are registered after every other route; scan 3 proves the query still reports an unlimited route. |
+| N1: a bare destination starting with `<` is not an image | non-blocking | Accepted. The angle form is chosen for any `href` containing whitespace, `<` or `>`. |
+| N2: anonymous callers can exhaust a signed-in author's GPX budget | non-blocking | Accepted as a recorded residual (trust table, `SECURITY.md`); the test counts session lookups. |
+| N3: `config.rateLimit` on a root route is a credited no-op | non-blocking | Accepted. Root `onRoute` guard fails the boot; tested. |
+| N4: `build.ts` meets the D2 rule but was not listed; stronger rationale; "publish", not "save" | non-blocking | Accepted. Listed; the error-handler example and test use `%c3%a4`; wording fixed. |
+| N5: the settings failure text was unspecified | non-blocking | Accepted. `refusal('generate the preview')`; stubbed-failure test. |
+| N6: hero tests for transitions and edge hosts | non-blocking | Accepted. |
+| N7: pin the refusal shape and `HEAD` | non-blocking | Accepted; the 30 + 30 bound is stated. |
+| N8: corrections (no peer dependency, only `ip-address` is new, one store per limiter, the reason for rejecting per-route session checks) | non-blocking | Accepted; D4 corrected. |
+| N9: the plugin marks a request as limited once per instance | non-blocking | Accepted; noted in the `registerGpxRoutes` doc comment. |
+| N10: the pull request must close the children | non-blocking | Accepted; T5 lists the `Closes` lines. |
