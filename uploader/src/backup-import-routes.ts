@@ -1,7 +1,6 @@
 import { constants } from 'node:fs';
 import { open, type FileHandle } from 'node:fs/promises';
-import { join } from 'node:path';
-import { BACKUP_FILE_RE, IMAGES_ARCHIVE_RE } from './backup.js';
+import { BACKUP_FILE_RE, backupFilePath, IMAGES_ARCHIVE_RE } from './backup.js';
 import { projectBuildReport } from './build-state.js';
 import { diskSpace } from './disk.js';
 import { exportAll } from './export.js';
@@ -48,9 +47,11 @@ export function registerBackupAndImportRoutes(ctx: ServerContext): void {
     if (!isDump && !IMAGES_ARCHIVE_RE.test(name) && !ROUTE_ARCHIVE_RE.test(name)) {
       return reply.code(400).send({ error: 'invalid backup filename' });
     }
+    const file = backupFilePath(cfg.dbBackup.dir, name);
+    if (file === null) return reply.code(400).send({ error: 'invalid backup filename' });
     let handle: FileHandle | undefined;
     try {
-      handle = await open(join(cfg.dbBackup.dir, name), constants.O_RDONLY | constants.O_NOFOLLOW);
+      handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
       const stat = await handle.stat();
       if (!stat.isFile() || stat.nlink !== 1) {
         await handle.close();

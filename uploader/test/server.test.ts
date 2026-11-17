@@ -5586,6 +5586,13 @@ describe('backup routes', () => {
     expect(tarOk.statusCode).toBe(200);
     expect(tarOk.headers['content-type']).toBe('application/x-tar');
     expect(tarOk.headers['content-disposition']).toContain('attachment');
+    const routesName = `routes-20260703-120000-${'0123456789abcdef'.repeat(2)}.tar`;
+    await writeFile(join(backupDir, routesName), 'routebytes');
+    const routesOk = await b.app.inject({ method: 'GET', url: `/backups/${routesName}`, cookies: cookie });
+    expect(routesOk.statusCode).toBe(200);
+    expect(routesOk.headers['content-type']).toBe('application/x-tar');
+    expect(routesOk.headers['content-disposition']).toBe(`attachment; filename="${routesName}"`);
+    expect(routesOk.body).toBe('routebytes');
     for (const evil of ['..%2Fsettings.json', 'state.json', 'db-1.json.gz', 'images-1.tar', 'images-20260703-120000.tar.gz']) {
       const res = await b.app.inject({ method: 'GET', url: `/backups/${evil}`, cookies: cookie });
       expect([400, 404]).toContain(res.statusCode);
