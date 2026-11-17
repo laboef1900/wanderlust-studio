@@ -1,10 +1,9 @@
 # Issue 622: CodeQL production warning-level hardening
 
-Status: design revision 3. Revision 2 was approved 2026-11-17 by independent AI review; this
-revision adds that reviewer's six non-blocking recommendations, under the scoped exception below
-(see *Approval record*). Risk: **high** (the login, setup and password-change routes move
-into a child plugin scope, the backup download route, the WXR importer and its image scan,
-a new runtime dependency).
+Status: design revision 3, approved 2026-11-17 by independent AI review under the scoped
+exception below (see *Approval record*). Risk: **high** (the login, setup and
+password-change routes move into a child plugin scope, the backup download route, the WXR
+importer and its image scan, a new runtime dependency).
 
 Parent: [#622](https://github.com/laboef1900/wanderlust-studio/issues/622). Children:
 [#609](https://github.com/laboef1900/wanderlust-studio/issues/609) (alert 5),
@@ -117,7 +116,9 @@ The existing unescape step already handles the result.
 - For every `href` without a backslash, `<` or `>` the produced Markdown is byte-identical.
 - `markdownImages` returns the original `href` for every output of `inlineImage`, and for
   Turndown's own escaped angle destinations, which it misses today.
-- Every reading of existing text that changes moves to CommonMark's reading. The classes:
+- Every reading of existing text that changes moves to CommonMark's reading, or to "not an
+  image" where the text falls outside the pattern's Turndown-restricted title grammar (one
+  case in 71,027 changed readings of the reviewer's run). The classes:
   an escaped `<` or `>` inside an angle destination is now part of the URL; an angle
   destination whose closing bracket is escaped is no longer an image; a bare destination
   starting with `<` is no longer an image. Neither the importer nor Turndown produces the
@@ -288,7 +289,7 @@ app.register(async (scope) => {
   `preHandler: requireAdmin` staying a function: written as an array, Fastify's shallow copy
   of the options for the twin would make both limiters share it.
 - The scope carries the same kind of guard as the login scope:
-  `scope.addHook('onRoute', requireRouteLimiter((route) => typeof route.config?.rateLimit === 'object', 'config.rateLimit'))`,
+  `scope.addHook('onRoute', requireRouteLimiter((route) => route.config?.rateLimit != null && typeof route.config.rateLimit === 'object', 'config.rateLimit'))`,
   so a route without its own limit cannot be declared in it.
 
 **3. Login, setup and password change** (`auth-routes.ts`). `POST /setup`, `POST /login` and
@@ -504,7 +505,11 @@ linear matching time.
 | R5: nothing pins what the moved routes inherit from the root | non-blocking | Accepted. One new case (read-only refusal, frame and referrer headers). |
 | R6: three implementation details | non-blocking | Accepted. Stated in D4. |
 
-### Revision 3 (this revision)
+### Revision 3 (commit `9aab82fbeb04138d259ae413c2ea1ebe4880ad7c`): approved
 
-Revision 2 plus R1 to R6 as dispositioned above; no other change. Sent to the same reviewer
-for confirmation that the recommendations are taken up as proposed.
+Revision 2 plus R1 to R6 as dispositioned above; no other change. Same reviewer, follow-up
+session (Orca dispatch `ctx_e624a9664e2b`), 2026-11-17. Verdict: **approved**; the partial
+acceptance of R3 does not change it. Two editorial notes, both applied to this text without
+a further round, as the reviewer stated: the backup-scope predicate also excludes `null`,
+and the sentence on changed scan readings names the one case that ends at "not an image"
+rather than at CommonMark's reading.
