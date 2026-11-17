@@ -17,7 +17,6 @@ window.MediaImpact = (function () {
     };
     const format = (template, values) => template.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
     text('h3', copy.mediaImpactHeading);
-    text('p', copy.mediaImpactScope);
     const impact = observation?.impact;
     if (changed) {
       if (!locales.some((locale) => changed[locale].alt || changed[locale].caption)) text('p', copy.mediaImpactUnchanged);

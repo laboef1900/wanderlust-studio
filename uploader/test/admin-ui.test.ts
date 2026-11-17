@@ -16,6 +16,10 @@ interface Api {
     hold(control: unknown): (...fallbacks: unknown[]) => void;
     firstInView<T extends Box>(candidates: (T | null)[], container: Box | null): T | null;
   };
+  AdminIcons: {
+    ai(): SVGElement;
+    close(): SVGElement;
+  };
 }
 
 interface Box {
@@ -181,5 +185,15 @@ describe('AdminFocus.firstInView', () => {
   it('returns null when nothing is fully in view or there is no scroller', () => {
     expect(AdminFocus.firstInView([box(590, 606), box(700, 716)], scroller)).toBeNull();
     expect(AdminFocus.firstInView([box(300, 316)], null)).toBeNull();
+  });
+});
+
+describe('AdminIcons', () => {
+  it('builds aria-hidden SVG icons including ai and close', () => {
+    const { AdminIcons } = load();
+    const closeIcon = AdminIcons.close();
+    expect(closeIcon.tagName.toLowerCase()).toBe('svg');
+    expect(closeIcon.getAttribute('aria-hidden')).toBe('true');
+    expect(closeIcon.querySelectorAll('path')).toHaveLength(2);
   });
 });

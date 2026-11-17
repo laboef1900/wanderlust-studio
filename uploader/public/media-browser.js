@@ -23,9 +23,14 @@
   $('uploadTitle').textContent = copy.mediaUpload;
   $('uploadClose').textContent = copy.mediaViewerClose;
   $('detailJump').textContent = copy.mediaDetails;
-  var uploadFolderMenu = window.AdminSelect
-    ? window.AdminSelect.enhance($('uploadFolder'), { label: 'Folder' })
-    : null;
+  function enhanceSelect(select, opts) {
+    return window.AdminSelect && select ? window.AdminSelect.enhance(select, opts) : null;
+  }
+  var uploadFolderMenu = enhanceSelect($('uploadFolder'), { label: 'Folder' });
+  var statusMenu = enhanceSelect($('fStatus'));
+  var altMenu = enhanceSelect($('fAlt'));
+  var moveMenu = enhanceSelect($('moveTarget'));
+  var detailFolderMenu = null;
   function revealDetail() {
     $('detail').focus({ preventScroll: true });
     $('detail').scrollIntoView({ block: 'start' });
@@ -441,17 +446,8 @@
     state.alt = value === 'missing' ? 'missing' : '';
     state.page = 1;
     $('fAlt').value = state.alt;
-    // The active filter must be visible, so More filters opens with it.
-    if (state.alt) setMoreFilters(true);
+    if (altMenu) altMenu.sync();
     reload();
-  }
-
-  function setMoreFilters(open) {
-    var extra = $('fExtra');
-    var more = $('fMore');
-    extra.hidden = !open;
-    more.setAttribute('aria-expanded', open ? 'true' : 'false');
-    more.textContent = open ? 'Fewer filters' : 'More filters';
   }
 
   function fillFolderSelect(select, folders, selected) {
@@ -476,6 +472,7 @@
     $('bulkTools').hidden = state.selected.length === 0;
     var target = $('moveTarget');
     fillFolderSelect(target, state.folders, target.value);
+    if (moveMenu) moveMenu.sync();
     var uploadDialog = $('uploadDialog');
     var uploadFolder = $('uploadFolder');
     fillFolderSelect(uploadFolder, state.folders, uploadDialog && uploadDialog.open ? uploadFolder.value : state.folder);
@@ -621,6 +618,7 @@
     // Explicit actions (including Save) still refresh the clean panel normally.
     if (background && item && panel.dataset.key === item.key
       && panel.contains(document.activeElement)) return;
+    if (detailFolderMenu) { detailFolderMenu.close(); detailFolderMenu = null; }
     panel.innerHTML = '';
     // A suggestion belongs to the photo it was asked for: once the panel shows
     // another photo (or none), the request is abandoned, never applied, and
@@ -646,9 +644,12 @@
     state.detailRecovery = null;
     var header = el('div', 'media-detail__header');
     header.appendChild(el('h2', 'section-label', copy.mediaDetails));
-    var back = el('button', 'btn-link', copy.mediaBackToPhotos);
+    var back = el('button', 'media-detail__close');
     back.type = 'button';
     back.id = 'detailBack';
+    back.setAttribute('aria-label', copy.mediaViewerClose);
+    back.title = copy.mediaViewerClose;
+    back.appendChild(window.AdminIcons.close());
     back.addEventListener('click', function () {
       whenReplaceable(null, function () {
         state.detailKey = null;
@@ -697,15 +698,17 @@
     });
     restoreOffers();
 
-    var folderLabel = el('label', null, 'Folder');
+    var folderField = el('div', 'media-detail__field');
     var folderSelect = document.createElement('select');
     folderSelect.id = 'dFolder';
+    folderSelect.setAttribute('aria-label', 'Folder');
     var folders = state.folders;
     // An acknowledged/current item can name a folder created since this list loaded.
     if (item.folder && folders.indexOf(item.folder) === -1) folders = folders.concat(item.folder);
     fillFolderSelect(folderSelect, folders, item.folder);
-    folderLabel.appendChild(folderSelect);
-    panel.appendChild(folderLabel);
+    folderField.appendChild(folderSelect);
+    panel.appendChild(folderField);
+    detailFolderMenu = enhanceSelect(folderSelect);
 
     var save = el('button', null, 'Save details');
     save.id = 'dSave';
@@ -748,13 +751,17 @@
     });
     panel.appendChild(dl);
 
-    // The variant files themselves, read from disk by the observation (renderVersions).
-    var versionsLabel = el('p', 'section-label', copy.mediaVersions);
+    // The variant files themselves, read from disk by the observation (renderVersions),
+    // inside a native disclosure that starts collapsed.
+    var versionsDetails = el('details', 'media-versions-details');
+    versionsDetails.id = 'dVersionsDetails';
+    var versionsLabel = el('summary', 'section-label', copy.mediaVersions);
     versionsLabel.id = 'dVersionsLabel';
-    panel.appendChild(versionsLabel);
+    versionsDetails.appendChild(versionsLabel);
     var versionsBox = el('div');
     versionsBox.id = 'dVersions';
-    panel.appendChild(versionsBox);
+    versionsDetails.appendChild(versionsBox);
+    panel.appendChild(versionsDetails);
     renderVersions();
 
     renderEncodingActions(panel, item);
@@ -1596,7 +1603,6 @@
     $('altMissingAction').addEventListener('click', function () {
       setAltFilter(state.alt === 'missing' ? '' : 'missing');
     });
-    $('fMore').addEventListener('click', function () { setMoreFilters($('fExtra').hidden); });
     $('prevPage').addEventListener('click', function () { state.page = Math.max(1, state.page - 1); reload(); });
     $('nextPage').addEventListener('click', function () { state.page += 1; reload(); });
     // The encoding poll follows the tab: nothing is read while it is hidden.
@@ -1889,6 +1895,8 @@
       state.recursive = true;
       state.page = 1;
       $('fSearch').value = $('fStatus').value = $('fAlt').value = '';
+      if (statusMenu) statusMenu.sync();
+      if (altMenu) altMenu.sync();
       $('fRecursive').checked = true;
       $('fSearch').focus();
       reload();
@@ -1908,7 +1916,7 @@
     var restored = readUrlState();
     state.alt = restored.alt;
     $('fAlt').value = state.alt;
-    if (state.alt) setMoreFilters(true);
+    if (altMenu) altMenu.sync();
     if (restored.folder) {
       try {
         var folders = await client.folders();

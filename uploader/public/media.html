@@ -10,6 +10,10 @@
     <header class="cms-page-meta">
       <h1>Media</h1>
       <p id="mediaIntro" class="lede"></p>
+      <div class="cms-page-actions">
+        <button type="button" id="uploadOpen" class="media-upload-open">Upload photos</button>
+        <button type="button" id="aiAll" class="btn-secondary">Generate details with AI</button>
+      </div>
     </header>
 
     <main>
@@ -33,46 +37,36 @@
               <span>Search</span>
               <input id="fSearch" type="search" placeholder="Key, title, alt or caption" autocomplete="off" />
             </label>
-            <label class="filter-field">
-              <span>Status</span>
-              <select id="fStatus">
+            <div class="filter-field filter-field--menu">
+              <select id="fStatus" aria-label="Status">
                 <option value="">All</option>
                 <option value="ready">Ready</option>
                 <option value="processing">Processing</option>
                 <option value="failed">Failed</option>
                 <option value="missing">Missing</option>
               </select>
+            </div>
+            <div class="filter-field filter-field--menu filter-field--compact">
+              <select id="fAlt" aria-label="Alt text">
+                <option value="">Any</option>
+                <option value="missing">Missing</option>
+              </select>
+            </div>
+            <label class="filter-field filter-field--check">
+              <span>Subfolders</span>
+              <input id="fRecursive" type="checkbox" checked />
             </label>
-            <button type="button" id="fMore" class="btn-link filter-reset" aria-expanded="false" aria-controls="fExtra">More filters</button>
-            <div class="media-toolbar-actions">
-              <button type="button" id="uploadOpen" class="media-upload-open">Upload photos</button>
-              <button type="button" id="aiAll" class="btn-secondary media-ai-open">Generate details with AI…</button>
-              <button type="button" id="detailJump" class="btn-secondary" hidden></button>
-            </div>
-            <div class="posts-filters-extra" id="fExtra" hidden>
-              <label class="filter-field filter-field--check">
-                <span>Subfolders</span>
-                <input id="fRecursive" type="checkbox" checked />
-              </label>
-              <label class="filter-field">
-                <span>Alt text</span>
-                <select id="fAlt">
-                  <option value="">Any</option>
-                  <option value="missing">Missing</option>
-                </select>
-              </label>
-              <button id="rescan" type="button" class="btn-secondary">Rescan disk</button>
-            </div>
+            <button id="rescan" type="button" class="btn-secondary">Rescan disk</button>
+            <button type="button" id="detailJump" class="btn-secondary" hidden></button>
           </div>
 
           <div id="uploadQueue" class="upload-queue" hidden></div>
 
           <div class="bulk-bar" id="bulkTools" hidden>
             <span id="selCount" aria-live="polite"></span>
-            <label class="filter-field">
-              <span>Move to</span>
-              <select id="moveTarget"></select>
-            </label>
+            <div class="filter-field filter-field--menu">
+              <select id="moveTarget" aria-label="Move to"></select>
+            </div>
             <button id="moveSelected" type="button" class="btn-secondary">Move</button>
             <button id="retrySelected" type="button" class="btn-secondary">Retry encoding</button>
             <button id="aiSelected" type="button" class="btn-secondary">Generate details with AI</button>

@@ -332,6 +332,7 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
       getElementById,
       get activeElement() { return focusState.activeElement; },
       createElement: (tag: string) => new FakeNode(tag, focusState),
+      createElementNS: (_ns: string, tag: string) => new FakeNode(tag, focusState),
       createTextNode: (text: string) => Object.assign(new FakeNode('#text', focusState), { textContent: text }),
     },
     location: { href: '', origin: 'https://app.example', protocol: 'https:', pathname: '/admin/media.html', search: opts.search ?? '' },
@@ -588,7 +589,7 @@ describe('media-browser upload modal', () => {
 
     expect(page.el('uploadOpen').textContent).toBe(ui.en['editor.chrome.mediaUpload']);
     expect(page.el('uploadDialog').open).toBe(false);
-    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder']);
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder', 'fStatus:', 'fAlt:', 'moveTarget:']);
 
     page.el('uploadOpen').click();
     expect(page.el('uploadDialog').open).toBe(true);
@@ -2676,15 +2677,13 @@ describe('media-browser alt text count and filter', () => {
     expect(page.el('altMissingLine').hidden).toBe(false);
     expect(page.el('altMissingText').textContent).toBe('12 ready photos in this view have no alt text.');
     expect(page.el('altMissingAction').textContent).toBe('Show only these');
-    expect(page.el('fExtra').hidden).toBe(true);
 
     page.el('altMissingAction').click();
     await page.flush();
     const filtered = page.listRequests.shift()!;
     expect(new URL(filtered.url, 'https://app.example').searchParams.get('alt')).toBe('missing');
     expect(page.el('fAlt').value).toBe('missing');
-    expect(page.el('fExtra').hidden).toBe(false);
-    expect(page.el('fMore').getAttribute('aria-expanded')).toBe('true');
+    expect(page.selectMenus.syncs).toContain('fAlt=missing');
     filtered.resolve({ items: [item('a')], total: 1, altMissing: 12 });
     await page.flush();
     expect(page.el('altMissingText').textContent).toBe('Showing photos without alt text.');
@@ -2944,7 +2943,7 @@ describe('media-browser URL state', () => {
     expect(params.get('folder')).toBe('Trips/North');
     expect(params.get('alt')).toBe('missing');
     expect(page.el('fAlt').value).toBe('missing');
-    expect(page.el('fExtra').hidden).toBe(false);
+    expect(page.selectMenus.syncs).toContain('fAlt=missing');
     first.resolve({ items: [], total: 0, altMissing: 0 });
     await page.flush();
     expect(page.el('folderTree').querySelectorAll('.is-current').map((button) => button.textContent)).toEqual(['North']);
@@ -3665,5 +3664,53 @@ describe('media viewer markup and stylesheet (#570)', () => {
   it('drops the panel\'s storage-key style and keeps the global one the AI dialog uses', () => {
     expect(css).not.toContain('.media-detail .media-key');
     expect(css).toMatch(/^\.media-key \{/m);
+  });
+});
+
+describe('media library layout, dropdowns, close icon, impact copy and collapsible versions', () => {
+  it('places Upload photos and Generate details with AI (no ellipsis) in the page header actions', () => {
+    expect(markup).toMatch(/<header class="cms-page-meta">[\s\S]*?<div class="cms-page-actions">[\s\S]*?id="uploadOpen"[\s\S]*?id="aiAll"[\s\S]*?<\/div>[\s\S]*?<\/header>/);
+    expect(markup).toContain('<button type="button" id="aiAll" class="btn-secondary">Generate details with AI</button>');
+    expect(markup).not.toContain('Generate details with AI…');
+  });
+
+  it('removes More filters, places compact Alt text right of Status, keeps Subfolders, and enhances all dropdowns', async () => {
+    expect(markup).not.toContain('id="fMore"');
+    expect(markup).not.toContain('id="fExtra"');
+    expect(markup).toMatch(/id="fStatus"[\s\S]*?class="filter-field filter-field--menu filter-field--compact"[\s\S]*?id="fAlt"[\s\S]*?id="fRecursive"/);
+
+    const page = loadPage({ folders: ['Trips'] });
+    await showLibrary(page, [item('a')]);
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder', 'fStatus:', 'fAlt:', 'moveTarget:']);
+    expect(page.selectMenus.syncs).toContain('moveTarget=');
+
+    tiles(page)[0]!.click();
+    await page.flush();
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder', 'fStatus:', 'fAlt:', 'moveTarget:', 'dFolder:']);
+
+    page.el('fStatus').value = 'failed';
+    page.el('fAlt').value = 'missing';
+    page.el('emptyShowAll').click();
+    expect(page.selectMenus.syncs).toContain('fStatus=');
+    expect(page.selectMenus.syncs).toContain('fAlt=');
+  });
+
+  it('uses a closing X icon in photo details, omits the gallery scope prose, and collapses Versions by default', async () => {
+    const page = loadPage();
+    await showLibrary(page, [item('a')]);
+    tiles(page)[0]!.click();
+    await page.flush();
+
+    const closeBtn = page.el('detailBack');
+    expect(closeBtn.textContent).toBe('');
+    expect(closeBtn.getAttribute('aria-label')).toBe(ui.en['editor.chrome.mediaViewerClose']);
+    expect(closeBtn.querySelectorAll('svg')).toHaveLength(1);
+    expect(page.el('dImpact').textContent).not.toContain(ui.en['editor.chrome.mediaImpactScope']);
+
+    const details = page.el('dVersionsDetails');
+    expect(details.tagName).toBe('details');
+    expect(details.open).toBe(false);
+    expect(details.children.map((child) => child.id)).toEqual(['dVersionsLabel', 'dVersions']);
+    expect(page.el('dVersionsLabel').tagName).toBe('summary');
   });
 });
