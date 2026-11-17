@@ -130,7 +130,7 @@ export function buildServer(cfg: ServerConfig): AppServer {
     if (err instanceof StorageReadOnlyError || !isWritable()) return readOnly(reply);
     const status = err.statusCode ?? 500;
     if (status >= 500) {
-      console.error(`unhandled error on ${req.method} ${req.url}:`, err);
+      console.error('unhandled error on %s %s:', req.method, req.url, err);
       return reply.code(500).send({ error: 'internal server error' });
     }
     return reply.code(status).send({ error: err.message });

@@ -20,7 +20,7 @@ export function registerMediaRoutes(ctx: ServerContext): void {
   const releaseUnqueued = async (key: string, s: MediaStatus, e?: MediaError): Promise<boolean> => {
     if (cfg.encodeQueue.isActive(key)) return false;
     return cfg.media.setStatusIfProcessing(key, s, e).catch((err: unknown) => {
-      console.error(`could not roll back status for ${key}:`, err);
+      console.error('could not roll back status for %s:', key, err);
       return false;
     });
   };

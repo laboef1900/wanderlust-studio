@@ -415,7 +415,7 @@ export function registerPostsRoutes(ctx: ServerContext): void {
     const build = projectBuildReport(await cfg.builder.build('publish'));
     await posts.getPublishedTrack(tk)
       .then((track) => exportPost(pair, cfg.backupDir, track))
-      .catch((e) => console.error(`MDX backup for ${tk} failed:`, e));
+      .catch((e) => console.error('MDX backup for %s failed:', tk, e));
     return reply.send({
       published: true,
       build,
@@ -464,7 +464,7 @@ export function registerPostsRoutes(ctx: ServerContext): void {
           liveChanged = true;
           await posts.getPublishedTrack(tk)
             .then((track) => exportPost(pair, cfg.backupDir, track))
-            .catch((e) => console.error(`MDX backup for ${tk} failed:`, e));
+            .catch((e) => console.error('MDX backup for %s failed:', tk, e));
         } else if (action === 'unpublish') {
           if (pair.status !== 'published') throw new PostError('post is not published');
           committed = await posts.unpublish(tk);
@@ -481,7 +481,7 @@ export function registerPostsRoutes(ctx: ServerContext): void {
         } else if (e instanceof PostError) {
           results.push({ key: tk, ok: false, error: e.message });
         } else {
-          console.error(`bulk ${action} failed for ${tk}:`, e);
+          console.error('bulk %s failed for %s:', action, tk, e);
           results.push({ key: tk, ok: false, error: 'internal error' });
         }
       }

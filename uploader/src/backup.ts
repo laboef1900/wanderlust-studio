@@ -643,7 +643,7 @@ export function sweepTempFiles(dir: string): string[] {
       rmSync(join(dir, name), { force: true });
       swept.push(name);
     } catch (e) {
-      console.error(`could not remove stale backup temp file ${name}:`, e);
+      console.error('could not remove stale backup temp file %s:', name, e);
     }
   }
   return swept;

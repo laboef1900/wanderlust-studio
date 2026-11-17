@@ -375,7 +375,7 @@ export function createSiteBuilder(opts: SiteBuilderOptions): SiteBuilder {
         } catch (error) { cause = error; }
         const code = promoted ? undefined : !work.isWritable() ? 'build_stopped' : failureCode(cause, deploymentStarted);
         if (cause !== undefined) {
-          try { console.error(`site build ${attemptId} ${promoted ? 'post-promotion settlement warning' : `failed (${code})`}`, cause); }
+          try { console.error('site build %s %s', attemptId, promoted ? 'post-promotion settlement warning' : `failed (${code})`, cause); }
           catch { /* Diagnostic sinks cannot undo a committed release. */ }
         }
         const live = await observeLiveRelease(opts.releasesRoot);

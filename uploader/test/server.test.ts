@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { setImmediate as nextTurn } from 'node:timers/promises';
+import { format } from 'node:util';
 import type { BackupState, DbBackup } from '../src/backup.js';
 import sharp, { type Exif } from 'sharp';
 import FormData from 'form-data';
@@ -414,8 +415,8 @@ describe('POST /gallery/analyze', () => {
       expect(res.json()).toEqual({ error: 'internal server error' });
       expect(error).toHaveBeenCalledTimes(1);
       expect(error.mock.calls.flat().map(String).join(' ')).not.toContain(source);
-      expect(error.mock.calls[0]![1]).toBeInstanceOf(Error);
-      expect((error.mock.calls[0]![1] as Error).message).toBe('Gallery source analysis failed');
+      expect(error.mock.calls[0]!.at(-1)).toBeInstanceOf(Error);
+      expect((error.mock.calls[0]!.at(-1) as Error).message).toBe('Gallery source analysis failed');
     } finally {
       analyze.mockRestore();
       error.mockRestore();
@@ -5005,7 +5006,7 @@ describe('posts editor', () => {
       const pub = await b.app.inject({ method: 'POST', url: `/posts/${tk}/publish`, cookies: cookie, payload: await publishBody(b.posts, tk) });
       expect(pub.statusCode).toBe(200);
       expect(pub.json().published).toBe(true);
-      expect(spy).toHaveBeenCalledWith(expect.stringContaining(tk), expect.objectContaining({ code: 'ENOTDIR' }));
+      expect(spy).toHaveBeenCalledWith('MDX backup for %s failed:', tk, expect.objectContaining({ code: 'ENOTDIR' }));
     } finally {
       spy.mockRestore();
     }
@@ -6419,5 +6420,71 @@ describe('identity asset administration and release serving (#275)', () => {
       expect(missing.statusCode).toBe(404);
       expect(missing.headers['cache-control'] ?? '').not.toContain('immutable');
     } finally { await b.app.close(); }
+  });
+});
+
+describe('console logging keeps untrusted values out of the format string', () => {
+  const HOSTILE = '%s%c%d-key';
+  const create = async (b: Built, cookie: { sid: string }, slug: string): Promise<string> => {
+    const image = { src: 'https://i/h', width: 9, height: 9, alt: 'a' };
+    const l = (locale: string) => ({ locale, slug: `${locale}-${slug}`, title: 'T', excerpt: 'e', country: 'X', heroImage: image, bodyMarkdown: '## b', images: {} });
+    const res = await injectAuthoring(b.app, { method: 'POST', url: '/posts', headers: { 'content-type': 'application/json' }, cookies: cookie,
+      payload: { translationKey: '', status: 'draft', shared: { date: '2024-10-03', countryCode: 'RO', region: 'europe', coordinates: { lat: 1, lng: 2 } }, de: l('de'), en: l('en') } });
+    return res.json().translationKey;
+  };
+  const printed = (spy: { mock: { calls: unknown[][] } }) => format(...(spy.mock.calls[0] as [string, ...unknown[]]));
+
+  it('prints a post key with format directives verbatim when the MDX backup fails after a bulk publish', async () => {
+    const posts = memoryPostStore();
+    const b = build({ posts, builder: stubBuilder().builder });
+    const { cookie } = await authed(b);
+    const real = await create(b, cookie, 'hostile');
+    const getPublishState = posts.getPublishState.bind(posts);
+    const publish = posts.publish.bind(posts);
+    posts.getPublishState = async (tk) => getPublishState(tk === HOSTILE ? real : tk);
+    posts.publish = async (tk, ...rest) => publish(tk === HOSTILE ? real : tk, ...rest);
+    posts.getPublishedTrack = async () => { throw new Error('track lookup refused'); };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await b.app.inject({ method: 'POST', url: '/posts/bulk', cookies: cookie,
+        payload: { action: 'publish', keys: [HOSTILE], baseLanguageUpdatedAt: (await posts.language.get()).updatedAt.toISOString() } });
+      expect(res.json()).toMatchObject({ succeeded: 1, failed: 0 });
+      expect(spy).toHaveBeenCalledOnce();
+      expect(printed(spy)).toContain(`MDX backup for ${HOSTILE} failed:`);
+      expect(printed(spy)).toContain('track lookup refused');
+    } finally { spy.mockRestore(); await b.app.close(); }
+  });
+
+  it('prints the key and the error when a bulk action fails unexpectedly', async () => {
+    const posts = memoryPostStore();
+    const b = build({ posts });
+    const { cookie } = await authed(b);
+    const real = await create(b, cookie, 'hostile');
+    const get = posts.get.bind(posts);
+    posts.get = async (tk) => get(tk === HOSTILE ? real : tk);
+    posts.remove = async () => { throw new Error('storage exploded'); };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await b.app.inject({ method: 'POST', url: '/posts/bulk', cookies: cookie, payload: { action: 'delete', keys: [HOSTILE] } });
+      expect(res.json().results[0]).toMatchObject({ ok: false, error: 'internal error' });
+      expect(spy).toHaveBeenCalledOnce();
+      expect(printed(spy)).toContain(`bulk delete failed for ${HOSTILE}:`);
+      expect(printed(spy)).toContain('storage exploded');
+    } finally { spy.mockRestore(); await b.app.close(); }
+  });
+
+  it('prints the request URL verbatim and the error when an unhandled error follows a lowercase percent-encoded URL', async () => {
+    const boom = memoryPostStore();
+    boom.get = async () => { throw new Error('lookup failed hard'); };
+    const b = build({ posts: boom });
+    const { cookie } = await authed(b);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await b.app.inject({ method: 'GET', url: '/posts/m%c3%a4rz/revisions', cookies: cookie });
+      expect(res.statusCode).toBe(500);
+      expect(spy).toHaveBeenCalledOnce();
+      expect(printed(spy)).toContain('unhandled error on GET /posts/m%c3%a4rz/revisions:');
+      expect(printed(spy)).toContain('lookup failed hard');
+    } finally { spy.mockRestore(); await b.app.close(); }
   });
 });
