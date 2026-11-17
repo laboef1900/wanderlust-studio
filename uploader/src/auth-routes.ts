@@ -6,10 +6,12 @@ import {
   DUMMY_STORED_HASH, MAX_PASSWORD_LENGTH, UserExistsError,
   passwordPolicyViolation, usernamePolicyViolation, verifyPassword,
 } from './users.js';
+import rateLimit from '@fastify/rate-limit';
+import { RATE_LIMIT_PLUGIN_OPTIONS, requireRouteLimiter } from './rate-limit.js';
 import type { ServerContext } from './server-context.js';
 
 export function registerAuthRoutes(ctx: ServerContext): void {
-  const { app, cfg, requireAuth, requireAdmin, optionalAuth, limitAuth, accountLimiter, passwordLimiter } = ctx;
+  const { app, cfg, requireAuth, requireAdmin, optionalAuth } = ctx;
   const { users, sessions } = cfg;
 
   app.get('/login', (_req, reply) => reply.sendFile('login.html'));
@@ -24,47 +26,6 @@ export function registerAuthRoutes(ctx: ServerContext): void {
   app.get('/auth/me', { preHandler: requireAuth }, async (req) => {
     const user = req.authUser!;
     return { authenticated: true, userId: user.id, username: user.username, isAdmin: user.isAdmin, needsSetup: false };
-  });
-
-  let setupChain: Promise<unknown> = Promise.resolve();
-  const withSetupLock = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = setupChain.then(fn, fn);
-    setupChain = run.then(() => undefined, () => undefined);
-    return run;
-  };
-
-  app.post('/setup', { preHandler: limitAuth }, async (req, reply) => withSetupLock(async () => {
-    if ((await users.count()) > 0) return reply.code(409).send({ error: 'setup already complete' });
-    const b = (req.body ?? {}) as { username?: unknown; password?: unknown };
-    const username = String(b.username ?? '').trim();
-    const password = String(b.password ?? '');
-    if (!username || !password) return reply.code(400).send({ error: 'username and password are required' });
-    const violation = usernamePolicyViolation(username) ?? passwordPolicyViolation(password);
-    if (violation) return reply.code(400).send({ error: violation });
-    const user = await users.create({ username, password, isAdmin: true });
-    const token = await sessions.create(user.id, SESSION_TTL_MS);
-    setSessionCookie(reply, token, isSecureRequest(req));
-    return reply.send({ username: user.username, isAdmin: user.isAdmin });
-  }));
-
-  app.post('/login', { preHandler: limitAuth }, async (req, reply) => {
-    const b = (req.body ?? {}) as { username?: unknown; password?: unknown };
-    const username = String(b.username ?? '').trim();
-    const password = String(b.password ?? '');
-    const user = await users.findByUsername(username);
-    if (accountLimiter.isLocked(username)) {
-      return reply.code(429).send({ error: 'account is temporarily locked due to excessive failed login attempts' });
-    }
-    const storedHash = user ? user.passwordHash : DUMMY_STORED_HASH;
-    const isValid = verifyPassword(password, storedHash);
-    if (!user || !isValid) {
-      accountLimiter.recordFailure(username);
-      return reply.code(401).send({ error: 'invalid username or password' });
-    }
-    accountLimiter.recordSuccess(username);
-    const token = await sessions.create(user.id, SESSION_TTL_MS);
-    setSessionCookie(reply, token, isSecureRequest(req));
-    return reply.send({ username: user.username, isAdmin: user.isAdmin });
   });
 
   app.post('/logout', { preHandler: requireAuth }, async (req, reply) => {
@@ -105,31 +66,92 @@ export function registerAuthRoutes(ctx: ServerContext): void {
     await sessions.destroyAllForUser(id);
     return reply.send({ ok: true });
   });
+}
 
-  app.post('/users/me/password', { preHandler: [limitAuth, requireAuth] }, async (req, reply) => {
-    const b = (req.body ?? {}) as { currentPassword?: unknown; newPassword?: unknown };
-    const currentPassword = String(b.currentPassword ?? '');
-    const newPassword = String(b.newPassword ?? '');
-    if (!currentPassword || !newPassword) {
-      return reply.code(400).send({ error: 'current and new password are required' });
-    }
-    const violation = passwordPolicyViolation(newPassword);
-    if (violation) return reply.code(400).send({ error: `new ${violation}` });
-    if (currentPassword.length > MAX_PASSWORD_LENGTH) return reply.code(400).send({ error: 'current password is incorrect' });
-    const user = req.authUser ? await users.findById(req.authUser.id) : null;
-    if (!user) return reply.code(401).send({ error: 'unauthorized' });
-    if (passwordLimiter.isLocked(user.id)) {
-      return reply.code(429).send({ error: 'too many failed attempts, please wait and try again' });
-    }
-    if (!verifyPassword(currentPassword, user.passwordHash)) {
-      passwordLimiter.recordFailure(user.id);
-      return reply.code(400).send({ error: 'current password is incorrect' });
-    }
-    passwordLimiter.recordSuccess(user.id);
-    await users.setPassword(user.id, newPassword);
-    await sessions.destroyAllForUser(user.id);
-    const token = await sessions.create(user.id, SESSION_TTL_MS);
-    setSessionCookie(reply, token, isSecureRequest(req));
-    return reply.send({ ok: true });
+/**
+ * `POST /setup`, `POST /login` and `POST /users/me/password`, in one child
+ * scope. They are limited by `limitAuth`, `accountLimiter` and
+ * `passwordLimiter` exactly as before; the `@fastify/rate-limit` instance
+ * registered here limits nothing (`global: false`, no route opts in). It is
+ * here only because CodeQL cannot model the in-house limiters: the
+ * registration is what makes the analysis credit these three routes, which are
+ * limited. The `onRoute` guard keeps that credit true: a route without
+ * `limitAuth` cannot be declared in this scope.
+ */
+export function registerLimitedAuthRoutes(ctx: ServerContext): void {
+  const { app, cfg, requireAuth, limitAuth, accountLimiter, passwordLimiter } = ctx;
+  const { users, sessions } = cfg;
+
+  app.register(async (limited) => {
+    await limited.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
+    limited.addHook('onRoute', requireRouteLimiter((route) => [route.preHandler].flat().includes(limitAuth), 'limitAuth'));
+
+    let setupChain: Promise<unknown> = Promise.resolve();
+    const withSetupLock = <T>(fn: () => Promise<T>): Promise<T> => {
+      const run = setupChain.then(fn, fn);
+      setupChain = run.then(() => undefined, () => undefined);
+      return run;
+    };
+
+    limited.post('/setup', { preHandler: limitAuth }, async (req, reply) => withSetupLock(async () => {
+      if ((await users.count()) > 0) return reply.code(409).send({ error: 'setup already complete' });
+      const b = (req.body ?? {}) as { username?: unknown; password?: unknown };
+      const username = String(b.username ?? '').trim();
+      const password = String(b.password ?? '');
+      if (!username || !password) return reply.code(400).send({ error: 'username and password are required' });
+      const violation = usernamePolicyViolation(username) ?? passwordPolicyViolation(password);
+      if (violation) return reply.code(400).send({ error: violation });
+      const user = await users.create({ username, password, isAdmin: true });
+      const token = await sessions.create(user.id, SESSION_TTL_MS);
+      setSessionCookie(reply, token, isSecureRequest(req));
+      return reply.send({ username: user.username, isAdmin: user.isAdmin });
+    }));
+
+    limited.post('/login', { preHandler: limitAuth }, async (req, reply) => {
+      const b = (req.body ?? {}) as { username?: unknown; password?: unknown };
+      const username = String(b.username ?? '').trim();
+      const password = String(b.password ?? '');
+      const user = await users.findByUsername(username);
+      if (accountLimiter.isLocked(username)) {
+        return reply.code(429).send({ error: 'account is temporarily locked due to excessive failed login attempts' });
+      }
+      const storedHash = user ? user.passwordHash : DUMMY_STORED_HASH;
+      const isValid = verifyPassword(password, storedHash);
+      if (!user || !isValid) {
+        accountLimiter.recordFailure(username);
+        return reply.code(401).send({ error: 'invalid username or password' });
+      }
+      accountLimiter.recordSuccess(username);
+      const token = await sessions.create(user.id, SESSION_TTL_MS);
+      setSessionCookie(reply, token, isSecureRequest(req));
+      return reply.send({ username: user.username, isAdmin: user.isAdmin });
+    });
+
+    limited.post('/users/me/password', { preHandler: [limitAuth, requireAuth] }, async (req, reply) => {
+      const b = (req.body ?? {}) as { currentPassword?: unknown; newPassword?: unknown };
+      const currentPassword = String(b.currentPassword ?? '');
+      const newPassword = String(b.newPassword ?? '');
+      if (!currentPassword || !newPassword) {
+        return reply.code(400).send({ error: 'current and new password are required' });
+      }
+      const violation = passwordPolicyViolation(newPassword);
+      if (violation) return reply.code(400).send({ error: `new ${violation}` });
+      if (currentPassword.length > MAX_PASSWORD_LENGTH) return reply.code(400).send({ error: 'current password is incorrect' });
+      const user = req.authUser ? await users.findById(req.authUser.id) : null;
+      if (!user) return reply.code(401).send({ error: 'unauthorized' });
+      if (passwordLimiter.isLocked(user.id)) {
+        return reply.code(429).send({ error: 'too many failed attempts, please wait and try again' });
+      }
+      if (!verifyPassword(currentPassword, user.passwordHash)) {
+        passwordLimiter.recordFailure(user.id);
+        return reply.code(400).send({ error: 'current password is incorrect' });
+      }
+      passwordLimiter.recordSuccess(user.id);
+      await users.setPassword(user.id, newPassword);
+      await sessions.destroyAllForUser(user.id);
+      const token = await sessions.create(user.id, SESSION_TTL_MS);
+      setSessionCookie(reply, token, isSecureRequest(req));
+      return reply.send({ ok: true });
+    });
   });
 }

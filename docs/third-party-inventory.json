@@ -20,9 +20,9 @@
     },
     "uploader": {
       "path": "uploader/package-lock.json",
-      "sha256": "d91a1f932eee7d376915436b181f4a333e458a0dc73d460e12fbc8a2fff12f9e",
+      "sha256": "4e8222085d1b5930eaeb873436dae01346c91d30125df5fe8df585ce0b019706",
       "lockfileVersion": 3,
-      "entries": 367
+      "entries": 369
     }
   },
   "packages": [
@@ -7924,6 +7924,21 @@
     },
     {
       "tree": "uploader",
+      "path": "node_modules/@fastify/rate-limit",
+      "name": "@fastify/rate-limit",
+      "version": "11.2.2",
+      "license": "MIT",
+      "resolved": "https://registry.npmjs.org/@fastify/rate-limit/-/rate-limit-11.2.2.tgz",
+      "integrity": "sha512-Ynxk9BU82Y5Ux7NOk9NqyZpTMdFes8EY8quXrN6ePDsbtG4G9Afb3l9mD8Vw2nv0hXg0iFjV+gkdABReFPlShw==",
+      "dev": false,
+      "optional": false,
+      "obligationIds": [
+        "MIT"
+      ],
+      "obligationStatus": "summary-only; distribution-evidence-required"
+    },
+    {
+      "tree": "uploader",
       "path": "node_modules/@fastify/send",
       "name": "@fastify/send",
       "version": "4.2.0",
@@ -10791,6 +10806,21 @@
       "optional": false,
       "obligationIds": [
         "ISC"
+      ],
+      "obligationStatus": "summary-only; distribution-evidence-required"
+    },
+    {
+      "tree": "uploader",
+      "path": "node_modules/ip-address",
+      "name": "ip-address",
+      "version": "10.7.6",
+      "license": "MIT",
+      "resolved": "https://registry.npmjs.org/ip-address/-/ip-address-10.7.6.tgz",
+      "integrity": "sha512-00LYkM6byILa9eQIx6qoaXCM40xTLd56AZ4vyaPW3YTyb49VZYPo5xsiAq4tuQ54GH4R7gVdYScJ1B7B77PuTg==",
+      "dev": false,
+      "optional": false,
+      "obligationIds": [
+        "MIT"
       ],
       "obligationStatus": "summary-only; distribution-evidence-required"
     },

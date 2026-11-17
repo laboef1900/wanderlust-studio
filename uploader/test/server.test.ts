@@ -16,6 +16,7 @@ import { format } from 'node:util';
 import type { BackupState, DbBackup } from '../src/backup.js';
 import sharp, { type Exif } from 'sharp';
 import FormData from 'form-data';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest, type LightMyRequestResponse } from 'fastify';
 import { buildServer, type ServerConfig } from '../src/server.js';
 import { rehostImage } from '../src/wp-images.js';
 import { contentHashKey } from '../src/storage.js';
@@ -38,7 +39,9 @@ import { memoryMediaStore, type MediaStore } from '../src/media-store.js';
 import type { MediaImpact } from '../src/media-impact.js';
 import { createEncodeQueue, type EncodeQueue } from '../src/encode-queue.js';
 import { createWorkLock, type WorkLock } from '../src/work-lock.js';
-import { fixedWindowLimiter, accountLockoutLimiter } from '../src/rate-limit.js';
+import { fixedWindowLimiter, accountLockoutLimiter, BACKUP_DOWNLOAD_RATE_LIMIT, GPX_RATE_LIMIT, requireRouteLimiter } from '../src/rate-limit.js';
+import { createGpxFiles } from '../src/gpx-files.js';
+import type { GpxService, RouteState } from '../src/gpx-service.js';
 import type { SiteBuilder, BuildOutcome } from '../src/build.js';
 import { memorySecretsStore, SecretsError } from '../src/secrets.js';
 import type { AiProvider, AiProviderKind } from '../src/ai-providers.js';
@@ -6486,5 +6489,315 @@ describe('console logging keeps untrusted values out of the format string', () =
       expect(printed(spy)).toContain('unhandled error on GET /posts/m%c3%a4rz/revisions:');
       expect(printed(spy)).toContain('lookup failed hard');
     } finally { spy.mockRestore(); await b.app.close(); }
+  });
+});
+
+// #619: @fastify/rate-limit in the GPX plugin and the backup-download scope.
+const RATE_LIMIT_HEADERS = ['x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset'] as const;
+function expectNoRateLimitHeaders(res: LightMyRequestResponse) {
+  for (const name of RATE_LIMIT_HEADERS) expect(res.headers[name], name).toBeUndefined();
+}
+/** The root onSend headers every admin/API route carries, child scopes included. */
+function expectRootSendHeaders(res: LightMyRequestResponse) {
+  expect(res.headers['x-content-type-options']).toBe('nosniff');
+  expect(res.headers['x-frame-options']).toBe('DENY');
+  expect(res.headers['referrer-policy']).toBe('no-referrer');
+  expect(res.headers['cache-control']).toBe('no-store');
+}
+/** An async onSend in the chain: a refused request must still never reach the handler. */
+function withAsyncSend(b: Built): Built {
+  b.app.addHook('onSend', async (_req, _reply, payload) => { await Promise.resolve(); return payload; });
+  return b;
+}
+
+describe('GPX rate limit (#619)', () => {
+  const routeState: RouteState = { version: null, geometry: null, originalAvailable: false, sourceBytes: null, published: false };
+  function gpxStub() {
+    const calls = { get: 0, reimport: 0 };
+    const unexpected = async (): Promise<never> => { throw new Error('unexpected GPX service call'); };
+    const gpx: GpxService = {
+      files: createGpxFiles({ storageDir: dir }),
+      get: async () => { calls.get++; return routeState; },
+      reimport: async () => { calls.reimport++; return unexpected(); },
+      original: unexpected, importBytes: unexpected, importUpload: unexpected, cancel: unexpected,
+      attach: unexpected, detach: unexpected, reconcile: unexpected, close: unexpected,
+      orphanCleanup: () => ({ status: 'ready', reason: null, deferredOriginals: 0 }),
+    };
+    return { gpx, calls };
+  }
+  const flooder = '198.51.100.7';
+  const neighbour = '198.51.100.8';
+
+  it('refuses the request after the per-address budget before any session lookup, body read or handler', async () => {
+    const { gpx, calls } = gpxStub();
+    const b = withAsyncSend(build({ gpx }));
+    const { cookie } = await authed(b);
+    const lookups = vi.spyOn(b.sessions, 'find');
+    const read = (cookies: Record<string, string>, remoteAddress = flooder) =>
+      b.app.inject({ method: 'GET', url: '/posts/some-post/route', cookies, remoteAddress });
+    try {
+      // A cookie without a live session: anonymous, but every request costs a lookup.
+      for (let i = 0; i < GPX_RATE_LIMIT.max; i++) {
+        const allowed = await read({ sid: 'stale-session' });
+        expect(allowed.statusCode).toBe(401);
+        expect(allowed.json()).toEqual({ error: 'unauthorized' });
+        expectNoRateLimitHeaders(allowed);
+      }
+      expect(lookups).toHaveBeenCalledTimes(GPX_RATE_LIMIT.max);
+
+      const refused = await read({ sid: 'stale-session' });
+      expect(refused.statusCode).toBe(429);
+      expect(refused.json()).toEqual({ error: 'gpx_busy' });
+      expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+      expectNoRateLimitHeaders(refused);
+      expectRootSendHeaders(refused);
+
+      // A signed-in author on the same address shares the budget (recorded residual).
+      const signedIn = await read(cookie);
+      expect(signedIn.statusCode).toBe(429);
+      expect(signedIn.json()).toEqual({ error: 'gpx_busy' });
+
+      // Refused before the body is read: an oversized body is not a 413.
+      const oversized = await b.app.inject({
+        method: 'POST', url: '/posts/some-post/route/import', cookies: cookie, remoteAddress: flooder,
+        headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ pad: 'x'.repeat(8192) }),
+      });
+      expect(oversized.statusCode).toBe(429);
+      expect(oversized.json()).toEqual({ error: 'gpx_busy' });
+
+      await nextTurn();
+      expect(lookups).toHaveBeenCalledTimes(GPX_RATE_LIMIT.max);
+      expect(calls).toEqual({ get: 0, reimport: 0 });
+
+      const other = await read(cookie, neighbour);
+      expect(other.statusCode).toBe(200);
+      expect(other.json()).toEqual(routeState);
+      expect(other.headers['retry-after']).toBeUndefined();
+      expectNoRateLimitHeaders(other);
+      expectRootSendHeaders(other);
+      expect(calls.get).toBe(1);
+    } finally {
+      await b.app.close();
+    }
+  });
+
+  it('leaves non-GPX routes from the exhausted address unlimited', async () => {
+    const { gpx } = gpxStub();
+    const b = build({ gpx });
+    const { cookie } = await authed(b);
+    try {
+      for (let i = 0; i <= GPX_RATE_LIMIT.max; i++) {
+        await b.app.inject({ method: 'GET', url: '/posts/some-post/route', remoteAddress: flooder });
+      }
+      const me = await b.app.inject({ method: 'GET', url: '/auth/me', cookies: cookie, remoteAddress: flooder });
+      expect(me.statusCode).toBe(200);
+      expect(me.headers['retry-after']).toBeUndefined();
+      expectNoRateLimitHeaders(me);
+    } finally {
+      await b.app.close();
+    }
+  });
+});
+
+describe('backup download rate limit (#619)', () => {
+  const dump = 'db-20260703-120000.json.gz';
+  const refusal = { error: 'too many requests, please wait and try again' };
+  async function backupServer() {
+    const backupDir = join(dir, 'dbbackups');
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, dump), 'gzbytes');
+    return withAsyncSend(build({ dbBackup: { ...stubBackup(backupDir).backup, dir: backupDir } }));
+  }
+
+  it('answers the budget as before, then refuses without opening a file', async () => {
+    const b = await backupServer();
+    const { cookie } = await authed(b);
+    try {
+      for (let i = 0; i < BACKUP_DOWNLOAD_RATE_LIMIT.max; i++) {
+        const ok = await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: cookie });
+        expect(ok.statusCode).toBe(200);
+        expect(ok.body).toBe('gzbytes');
+        expect(ok.headers['content-type']).toBe('application/gzip');
+        expect(ok.headers['content-disposition']).toBe(`attachment; filename="${dump}"`);
+        expect(ok.headers['retry-after']).toBeUndefined();
+        expectNoRateLimitHeaders(ok);
+        expectRootSendHeaders(ok);
+      }
+      // A missing file would be a 404 if the handler ran.
+      const refused = await b.app.inject({ method: 'GET', url: '/backups/db-20990101-000000.json.gz', cookies: cookie });
+      expect(refused.statusCode).toBe(429);
+      expect(refused.json()).toEqual(refusal);
+      expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+      expect(refused.headers['content-disposition']).toBeUndefined();
+      expectNoRateLimitHeaders(refused);
+      expectRootSendHeaders(refused);
+
+      // Routes that do not opt in stay unlimited from the same address.
+      for (let i = 0; i <= BACKUP_DOWNLOAD_RATE_LIMIT.max; i++) {
+        expect((await b.app.inject({ method: 'GET', url: '/backups', cookies: cookie })).statusCode).toBe(200);
+      }
+      expect((await b.app.inject({ method: 'POST', url: '/backups', cookies: cookie })).statusCode).toBe(200);
+      const me = await b.app.inject({ method: 'GET', url: '/auth/me', cookies: cookie });
+      expect(me.statusCode).toBe(200);
+      expect(me.headers['retry-after']).toBeUndefined();
+
+      // Another address keeps its own budget.
+      const other = await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: cookie, remoteAddress: '198.51.100.9' });
+      expect(other.statusCode).toBe(200);
+      expect(other.body).toBe('gzbytes');
+    } finally {
+      await b.app.close();
+    }
+  });
+
+  it('limits HEAD with a bucket of its own', async () => {
+    const b = await backupServer();
+    const { cookie } = await authed(b);
+    try {
+      for (let i = 0; i < BACKUP_DOWNLOAD_RATE_LIMIT.max; i++) {
+        expect((await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: cookie })).statusCode).toBe(200);
+      }
+      expect((await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: cookie })).statusCode).toBe(429);
+      for (let i = 0; i < BACKUP_DOWNLOAD_RATE_LIMIT.max; i++) {
+        const head = await b.app.inject({ method: 'HEAD', url: `/backups/${dump}`, cookies: cookie });
+        expect(head.statusCode).toBe(200);
+        expect(head.headers['content-type']).toBe('application/gzip');
+      }
+      const refused = await b.app.inject({ method: 'HEAD', url: `/backups/${dump}`, cookies: cookie });
+      expect(refused.statusCode).toBe(429);
+      expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+      expectNoRateLimitHeaders(refused);
+    } finally {
+      await b.app.close();
+    }
+  });
+
+  it('never spends the budget on anonymous or non-admin requests', async () => {
+    const b = await backupServer();
+    const { cookie: admin } = await authed(b);
+    const { cookie: author } = await authed(b, { isAdmin: false, username: 'author' });
+    try {
+      for (let i = 0; i < BACKUP_DOWNLOAD_RATE_LIMIT.max; i++) {
+        const anonymous = await b.app.inject({ method: 'GET', url: `/backups/${dump}` });
+        expect(anonymous.statusCode).toBe(401);
+        expect(anonymous.headers['retry-after']).toBeUndefined();
+        const nonAdmin = await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: author });
+        expect(nonAdmin.statusCode).toBe(403);
+        expect(nonAdmin.headers['retry-after']).toBeUndefined();
+      }
+      for (let i = 0; i < BACKUP_DOWNLOAD_RATE_LIMIT.max; i++) {
+        expect((await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: admin })).statusCode).toBe(200);
+      }
+      expect((await b.app.inject({ method: 'GET', url: `/backups/${dump}`, cookies: admin })).statusCode).toBe(429);
+      // After exhaustion an anonymous request still gets the guard's answer.
+      expect((await b.app.inject({ method: 'GET', url: `/backups/${dump}` })).statusCode).toBe(401);
+    } finally {
+      await b.app.close();
+    }
+  });
+});
+
+describe('rate-limit boot guards (#619)', () => {
+  const handler = async () => ({ ok: true });
+  const marker = async (_req: FastifyRequest, _reply: FastifyReply) => {};
+  const other = async (_req: FastifyRequest, _reply: FastifyReply) => {};
+  function guarded(declare: (scope: FastifyInstance) => void | Promise<void>) {
+    const app = Fastify({ logger: false });
+    app.register(async (scope) => {
+      scope.addHook('onRoute', requireRouteLimiter((route) => [route.preHandler].flat().includes(marker), 'marker'));
+      await declare(scope);
+    });
+    return app;
+  }
+
+  it('requireRouteLimiter accepts the limiter as a function or inside an array, and only guards its scope', async () => {
+    const app = guarded((scope) => {
+      scope.post('/fn', { preHandler: marker }, handler);
+      scope.post('/arr', { preHandler: [other, marker] }, handler);
+    });
+    app.post('/outside', handler);
+    try {
+      await app.ready();
+      for (const url of ['/fn', '/arr', '/outside']) expect((await app.inject({ method: 'POST', url })).statusCode, url).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    ['a route without the limiter', '/none', (scope: FastifyInstance) => { scope.post('/none', { preHandler: other }, handler); }],
+    ['a route without any preHandler', '/bare', (scope: FastifyInstance) => { scope.post('/bare', handler); }],
+    ['a nested child scope route', '/nested', (scope: FastifyInstance) => {
+      scope.register(async (child) => { child.post('/nested', handler); });
+    }],
+    ['a route of a non-encapsulated plugin', '/shared', (scope: FastifyInstance) => {
+      // What fastify-plugin sets: the plugin's routes are declared on `scope` itself.
+      const plugin = Object.assign(async (inner: FastifyInstance) => { inner.post('/shared', handler); }, { [Symbol.for('skip-override')]: true });
+      scope.register(plugin);
+    }],
+  ])('requireRouteLimiter fails the boot for %s', async (_label, url, declare) => {
+    const app = guarded(declare);
+    try {
+      await expect(app.ready()).rejects.toThrow(`POST ${url} must be rate-limited (marker)`);
+    } finally {
+      await app.close().catch(() => {});
+    }
+  });
+
+  it('fails the boot for config.rateLimit declared outside a rate-limited scope; false passes', async () => {
+    const root = build();
+    expect(() => root.app.get('/declared', { config: { rateLimit: { max: 1 } } }, handler))
+      .toThrow('GET /declared declares config.rateLimit outside a @fastify/rate-limit scope');
+    await root.app.close().catch(() => {});
+
+    const sibling = build();
+    sibling.app.register(async (scope) => { scope.get('/sibling', { config: { rateLimit: { max: 1 } } }, handler); });
+    await expect(sibling.app.ready()).rejects.toThrow('GET /sibling declares config.rateLimit outside a @fastify/rate-limit scope');
+    await sibling.app.close().catch(() => {});
+
+    const optedOut = build();
+    optedOut.app.get('/opted-out', { config: { rateLimit: false } }, handler);
+    try {
+      await optedOut.app.ready();
+      expect((await optedOut.app.inject({ method: 'GET', url: '/opted-out' })).statusCode).toBe(200);
+    } finally {
+      await optedOut.app.close();
+    }
+  });
+});
+
+describe('login, setup and password change inherit the root behavior from their scope (#619)', () => {
+  const routes = [
+    { url: '/setup', payload: { username: '', password: '' } },
+    { url: '/login', payload: { username: 'simon', password: 'wrong-password' } },
+    { url: '/users/me/password', payload: { currentPassword: 'x', newPassword: 'y' } },
+  ];
+
+  it('answer 503 storage_read_only without consulting the login limiter while storage is read-only, and carry the frame and referrer headers', async () => {
+    const loginLimiter = fixedWindowLimiter({ max: 100, windowMs: 60_000 });
+    const check = vi.spyOn(loginLimiter, 'check');
+    const readOnly = build({ isWritable: () => false, loginLimiter });
+    try {
+      for (const { url, payload } of routes) {
+        const res = await readOnly.app.inject({ method: 'POST', url, payload });
+        expect(res.statusCode, url).toBe(503);
+        expect(res.json(), url).toMatchObject({ error: 'storage_read_only' });
+      }
+      expect(check).not.toHaveBeenCalled();
+    } finally {
+      await readOnly.app.close();
+    }
+
+    const writable = build();
+    try {
+      for (const { url, payload } of routes) {
+        const res = await writable.app.inject({ method: 'POST', url, payload });
+        expect(res.statusCode, url).toBeLessThan(500);
+        expect(res.headers['x-frame-options'], url).toBe('DENY');
+        expect(res.headers['referrer-policy'], url).toBe('no-referrer');
+      }
+    } finally {
+      await writable.app.close();
+    }
   });
 });

@@ -8,8 +8,8 @@ import cookie from '@fastify/cookie';
 import { IdentityError } from '../../site/src/lib/site-identity.js';
 import { ui } from '../../site/src/i18n/ui.js';
 import { createAuthn } from './authn.js';
-import { registerAuthRoutes } from './auth-routes.js';
-import { registerBackupAndImportRoutes } from './backup-import-routes.js';
+import { registerAuthRoutes, registerLimitedAuthRoutes } from './auth-routes.js';
+import { registerBackupAndImportRoutes, registerBackupDownloadRoute } from './backup-import-routes.js';
 import { validateCanonicalRoles } from './canonical-origin.js';
 import { commentAuthorityOrigin, commentOrigin, registerPublicComments } from './comments-public.js';
 import { compressionHook } from './compress.js';
@@ -81,6 +81,18 @@ export function buildServer(cfg: ServerConfig): AppServer {
     };
   });
 
+  // A per-route `config.rateLimit` is enforced only inside a scope that
+  // registered @fastify/rate-limit; anywhere else the plugin never sees it,
+  // while CodeQL still credits it. A declared limit that is not enforced fails
+  // the boot. `false` is the plugin's own "no limit" value. A `function`, not an
+  // arrow: `this` is the instance the route is declared on.
+  app.addHook('onRoute', function (route) {
+    const declared = route.config?.rateLimit;
+    if (declared != null && declared !== false && !this.hasDecorator('rateLimit')) {
+      throw new Error(`${[route.method].flat().join(',')} ${route.url} declares config.rateLimit outside a @fastify/rate-limit scope`);
+    }
+  });
+
   app.addHook('onRequest', async (request, reply) => {
     if (isWritable()) return;
     if (request.routeOptions.url === '/health') {
@@ -143,7 +155,6 @@ export function buildServer(cfg: ServerConfig): AppServer {
   app.decorateRequest('authUser', null);
   const { optionalAuth, requireAuth, requireAdmin } = createAuthn(users, sessions);
 
-  if (cfg.gpx) registerGpxRoutes(app, { gpx: cfg.gpx, requireAuth });
   registerJourneyAdmin(app, { store: journeys, posts: cfg.posts, language, imageBase: cfg.baseUrl.replace(/\/$/, ''), builder: cfg.builder, requireAuth, requireAdmin });
   app.get('/admin/gpx-copy.js', async (_req, reply) =>
     reply.type('application/javascript; charset=utf-8').header('cache-control', 'no-store').send(renderGpxCopy()));
@@ -289,6 +300,15 @@ export function buildServer(cfg: ServerConfig): AppServer {
       globalLimiter: cfg.commentGlobalLimiter ?? fresh.global,
     });
   }
+
+  // Rate-limited scopes, last on purpose (see SECURITY.md, Rate limiting).
+  // CodeQL credits a @fastify/rate-limit registration to every route declared
+  // after it in source order, also outside the scope that holds it. Every
+  // route of these three scopes is limited; a route declared after this block
+  // would be credited without being limited, so the block stays last.
+  registerLimitedAuthRoutes(ctx);
+  registerBackupDownloadRoute(ctx);
+  if (cfg.gpx) registerGpxRoutes(app, { gpx: cfg.gpx, requireAuth });
 
   app.setNotFoundHandler(async (req, reply) => {
     const host = (req.headers.host ?? '').toLowerCase();
