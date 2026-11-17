@@ -1,8 +1,8 @@
 # Issue 623: CodeQL test-suite and DOM-harness hygiene
 
-Status: design revision 2, awaiting independent review (see *Approval record*). Risk:
-**normal**. Test files only; the one non-mechanical change is the markup parser of the DOM
-harness that 20 uploader suites build their assertions on.
+Status: design revision 2, approved 2026-11-17 by independent AI review (see *Approval
+record*). Risk: **normal**. Test files only; the one non-mechanical change is the markup
+parser of the DOM harness that 20 uploader suites build their assertions on.
 
 Parent: [#623](https://github.com/laboef1900/wanderlust-studio/issues/623). Children:
 [#610](https://github.com/laboef1900/wanderlust-studio/issues/610) (alerts 6, 7, 8, 9),
@@ -83,7 +83,7 @@ run below proves that for the current suites):
 | # | Input shape | Today | New |
 |---|---|---|---|
 | 1 | `<!--` inside script content, `-->` after the script | comment removal eats the markup between them | script content is opaque; markup after the script is kept |
-| 2 | pieces around a removed comment or script that join into a tag (`<scr<script></script>ipt>`, `<!<!-- -->-- -->`) | the joined text is tokenized: a `SCRIPT` node or a new comment appears | never joined |
+| 2 | pieces around a removed comment or script that join into a tag (`<scr<script></script>ipt>`, `<!<!-- -->-- -->`, `a<<!-- -->b>c`) | the joined text is tokenized: a joined tag or comment appears (a `SCRIPT` node, a new comment, a `B` element) | never joined |
 | 3 | `<script-x>` | treated as a script start (`\b`) | ordinary element `SCRIPT-X` |
 | 4 | comment delimiters inside a tag token (`<a title="<!-- x -->">`) | removed before tokenizing | part of that token |
 | 5 | a terminated script inside a tag token (`<a title="<script>x</script>">t</a>`) | removed before tokenizing | part of that token and the text after it |
@@ -275,6 +275,19 @@ mismatches), confirmed that `dom.scripts` for `public/index.html` equals the old
 | F7: the pull request should close the children and the parent | non-blocking | Accepted for the six children. The parent gets `Refs`: its last condition is met only after `dev` is rescanned. |
 | F8: `dom.scripts` lists every script element | non-blocking | Accepted. One sentence in D2. |
 
-### Revision 2
+### Revision 2 (commit `472e740289856aa03a6729a1844a6f25916129fc`): approved
 
-Pending.
+Same reviewer and session (`anthropic/claude-opus-5-5`, launched at effort `high`, Orca
+dispatch `ctx_425db02f94ec`), 2026-11-17. Verdict: **approved**, no blocking finding.
+
+The reviewer implemented revision 2's D1 as written in a scratch copy and repeated the
+differential with the structural comparison: 6461 `parseMarkup` calls, 0 mismatches; in all
+16 Desk page loads `dom.scripts` equals the old matches. Twenty-eight edge probes: every
+diverging input falls under one of the five rows, and `</script >`, `</SCRIPT x>`,
+`<!-->a-->b`, `&am<!-- -->p;`, `a<!x>b`, `a<>b` and the unterminated forms are identical
+to today. All eight revision 1 findings are resolved as dispositioned.
+
+Two non-blocking notes, both taken: row 2's "today" column now says any joined tag can
+appear (wording only, made after approval), and the implementation compares a case-folded
+slice per candidate instead of searching a lower-cased copy of the string, whose indices
+can drift.
