@@ -813,9 +813,9 @@ multiple replicas, limits would be counted per replica.)
   write, so a refused upload leaves no orphan original for the reconcile to adopt.
 - **Key-to-path resolution (#618).** `deleteMedia` and the versions list turn a key into a
   directory through one helper (`keyLocation` in `media-files.ts`). It calls `assertSafeKey`
-  first, then resolves the key under `STORAGE_DIR` and refuses a result that is not strictly
-  inside it. The second check is redundant by design: it is the one that sits on the value
-  reaching the file system.
+  first, then resolves the key under `STORAGE_DIR` and refuses a result that is not lexically
+  inside it (symbolic links are not resolved; the callers take regular files only). The second
+  check is redundant by design: it is the one that sits on the value reaching the file system.
 - **Media text fields** (`title`, `alt`, `caption`) strip `\p{C}` before the length cap, like tags
   and EXIF strings, so a NUL can never reach Postgres `text` (which rejects it with a 500).
 - **Story slugs** retain the ASCII grammar `[a-z0-9][a-z0-9-]*` and are bounded to
@@ -1136,10 +1136,10 @@ and presented results; acceptance checks the snapshot again. `/ai-config` has a 
 Article translation (#550) sends only bounded, opaque article-local text slots and locale
 codes as its user message. Image URLs, binaries, EXIF/GPS, shared fields, routes and unrelated
 metadata never enter its inference payload. Authenticated, no-store `POST /translation/prepare` and
-`/translation/validate` perform source analysis only: no model calls or writes. Both set an
-explicit `application/json` content type before any send, so echoed article text is never
-served as HTML (#614). The compiler
-reconstructs from the source, validates the complete response and structural fingerprint,
+`/translation/validate` perform source analysis only: no model calls or writes. Their handler
+sets an explicit `application/json` content type before every send it makes, so echoed
+article text is never served as HTML (#614). The compiler reconstructs from the source,
+validates the complete response and structural fingerprint,
 and preserves image identities, dimensions, gallery order/layout, reference destinations,
 empty overrides, hidden-caption state and unsupported source. Media remains authoritative;
 only article-local fallback text and occurrence-specific overrides are translatable.
@@ -1423,7 +1423,8 @@ The existing public sanitizer and post-sanitize image/gallery guards remain unch
 
 **Linear-time source parsing (#607, #615, 2026-11-17).** The editor's trailing-line split is
 a single backward scan, and its gallery-opener pattern has exactly one way to match any
-prefix, so a crafted draft cannot stall the editor tab. The gallery analyzer compares closing
+prefix, so a crafted draft cannot stall the editor tab through these two patterns. The
+gallery analyzer compares closing
 fences in code and builds no pattern from submitted text.
 
 **Public journeys (#310)** have no new public write endpoint. Their loader imports the

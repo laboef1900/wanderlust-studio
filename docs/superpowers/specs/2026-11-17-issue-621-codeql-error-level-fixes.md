@@ -135,7 +135,7 @@ language.
 ### D5. #615, alert 18: closing fence without a constructed pattern
 
 `fenceBlock` (`site/src/lib/gallery-source.ts`) matches the last row against the static
-pattern ``/^[ >\t]*(`{3,}|~{3,})[ \t]*$/`` and compares the captured run in code: same
+pattern ``/^[ >\t]*(`{3,}|~{3,})[ \t]*$/u`` and compares the captured run in code: same
 character as the opener's run and at least as long. The run is followed only by blanks to
 end of line, so the capture is the whole run and the result equals the constructed
 `{n,}` pattern for every `n >= 3`. The `rows.length - 2 >= values.length` condition and
@@ -192,8 +192,11 @@ differential run over generated inputs, reported as evidence and not committed.
 - Uploader: `npm run typecheck`, `npm test` with `TEST_DATABASE_URL` against a disposable
   Postgres 18 on an isolated port, `npm run test:e2e` (real Chromium, real editor bundle).
 - Site: `npm test`, `npx astro check`, `npm run build` against the same disposable database.
-- CodeQL on the pull request merge ref: alerts 1, 2, 3, 17, 18, 24, 25 and 26 absent and no
-  new alert. The alerts themselves close only when `dev` is rescanned after merge.
+- CodeQL on the pull request: alerts 1, 2, 3, 17, 18, 24, 25 and 26 not reported and no
+  alert introduced. The alerts themselves close only when `dev` is rescanned after merge.
+  The pull request's CodeQL check is still red for alert 29 (`js/missing-rate-limiting` on
+  `GET /backups/:name`): it exists on `dev`, belongs to #619, and is attributed to this
+  change only because the handler's lines were edited. It is intentionally not fixed here.
 - Required checks on the final head: `site · tests + astro check`,
   `uploader · typecheck + tests`.
 
@@ -263,3 +266,13 @@ hostile names: none of the 154 cases was accepted, and all three accepted name k
 resolve to today's path. F2 to F5 are resolved as proposed. The one deviation from F5, a
 root-level key with a trailing-slash storage directory in the D2 tests, was accepted: it
 fails for an implementation that compares against the unresolved directory.
+
+### Integrated diff (head `3189e33543360e7f35e725bc1c0108b963d29177`): approved
+
+Independent review of `origin/dev...HEAD` by a fresh session (`anthropic/claude-opus-5-5`,
+effort `high`, Orca dispatch `ctx_7885bd7f59ea`) using OMP's `/review` flow (the bundled
+`reviewer` agent) plus its own differential runs over about 29 million cases with no
+mismatch. Verdict: **approved**, with two should-fix findings and three nits, all accepted:
+alert 29 is now disclosed here and in the pull request; the gallery-offset table gained rows
+for quote markers directly before the fence and an indented opener; the `SECURITY.md`
+wording, the redundant-guard comments and two test rows were tightened.
