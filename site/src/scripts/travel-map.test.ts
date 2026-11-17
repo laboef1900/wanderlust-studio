@@ -172,7 +172,10 @@ function mount(component: string) {
   const source = readFileSync(resolve(process.cwd(), 'src/components', component), 'utf8');
   // Static imports and MapPage's lazy `await import()` (#280: an empty map page loads no
   // map bundle) both resolve to the module under test, injected below.
-  const script = source.match(/<script>([\s\S]*?)<\/script>/)![1]!.replace(/^  import .*;\n/gm, '')
+  const start = source.indexOf('<script>');
+  const end = start === -1 ? -1 : source.indexOf('</script>', start);
+  if (start === -1 || end === -1) throw new Error(component + ' has no client script');
+  const script = source.slice(start + '<script>'.length, end).replace(/^  import .*;\n/gm, '')
     .replace(/^\s*const \{ initFullMap \} = await import\([^)]*\);\n/gm, '');
   let intersect = () => {};
   const disconnect = vi.fn();

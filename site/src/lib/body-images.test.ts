@@ -433,7 +433,7 @@ describe('transformBodyImages — valid image flow (#378)', () => {
     expect(textOf(tree).trim()).toBe(text.trim());
     expectResponsive(tree, alts ?? ['See']);
     expect(elements(tree, parent).some((node) => childTags(node).includes('picture'))).toBe(true);
-    if (body.includes('https://example.com/')) {
+    if (parent === 'a') {
       expect(elements(tree, 'a')).toHaveLength(1);
       expect(elements(tree, 'a')[0]?.properties.href).toBe('https://example.com/');
     }
