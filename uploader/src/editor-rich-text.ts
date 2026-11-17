@@ -84,12 +84,12 @@ function galleriesIn(raw: string): Gallery[] {
     const line = lines[i];
     if (!line) continue;
     const text = line[0].replace(/[\r\n]+$/, '');
-    const opening = /^([ \t]*(?:(?:>[ \t]?|(?:[-+*]|\d+[.)])[ \t]+)[ \t]*)*)(`{3,}|~{3,})[ \t]*gallery(?:[ \t]+[^\r\n]*)?$/.exec(text);
+    const opening = /^([ \t]*(?:(?:>|(?:[-+*]|\d+[.)])[ \t])[ \t]*)*)(`{3,}|~{3,})[ \t]*gallery(?:[ \t]+[^\r\n]*)?$/.exec(text);
     if (!opening) continue;
     const fence = opening[2] ?? '';
     const body: string[] = [];
     for (i++; i < lines.length; i++) {
-      const content = (lines[i]?.[0] ?? '').replace(/[\r\n]+$/, '').replace(/^[ \t]*(?:>[ \t]?[ \t]*)*/, '');
+      const content = (lines[i]?.[0] ?? '').replace(/[\r\n]+$/, '').replace(/^[ \t]*(?:>[ \t]*)*/, '');
       const close = /^(`{3,}|~{3,})[ \t]*$/.exec(content)?.[1];
       if (close && close[0] === fence[0] && close.length >= fence.length) break;
       body.push(content);

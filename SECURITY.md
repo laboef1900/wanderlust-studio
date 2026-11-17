@@ -811,6 +811,11 @@ multiple replicas, limits would be counted per replica.)
   client-chosen key can neither `mkdir -p` an arbitrarily deep tree nor fail with `ENAMETOOLONG`
   after passing the regex. `POST /upload` validates the folder and the versioned key before any
   write, so a refused upload leaves no orphan original for the reconcile to adopt.
+- **Key-to-path resolution (#618).** `deleteMedia` and the versions list turn a key into a
+  directory through one helper (`keyLocation` in `media-files.ts`). It calls `assertSafeKey`
+  first, then resolves the key under `STORAGE_DIR` and refuses a result that is not lexically
+  inside it (symbolic links are not resolved; the callers take regular files only). The second
+  check is redundant by design: it is the one that sits on the value reaching the file system.
 - **Media text fields** (`title`, `alt`, `caption`) strip `\p{C}` before the length cap, like tags
   and EXIF strings, so a NUL can never reach Postgres `text` (which rejects it with a 500).
 - **Story slugs** retain the ASCII grammar `[a-z0-9][a-z0-9-]*` and are bounded to
@@ -1131,9 +1136,11 @@ and presented results; acceptance checks the snapshot again. `/ai-config` has a 
 Article translation (#550) sends only bounded, opaque article-local text slots and locale
 codes as its user message. Image URLs, binaries, EXIF/GPS, shared fields, routes and unrelated
 metadata never enter its inference payload. Authenticated, no-store `POST /translation/prepare` and
-`/translation/validate` perform source analysis only: no model calls or writes. The compiler
-reconstructs from the source, validates the complete response and structural fingerprint,
-and preserves image identities, dimensions, gallery order/layout, reference destinations,
+`/translation/validate` perform source analysis only: no model calls or writes. Their handler
+sets an explicit `application/json` content type before every send it makes, so echoed
+article text is never served as HTML (#614). The compiler reconstructs from the source,
+validates the complete response and structural fingerprint, and preserves image
+identities, dimensions, gallery order/layout, reference destinations,
 empty overrides, hidden-caption state and unsupported source. Media remains authoritative;
 only article-local fallback text and occurrence-specific overrides are translatable.
 When local fragment links exist, all headings remain unchanged to preserve generated IDs.
@@ -1413,6 +1420,11 @@ Gallery selection uses the existing Media authority. The self-hosted Tiptap bund
 owner-approved editor-only build exception, with pinned dependencies and local vendor
 build controls described in the [spec](docs/superpowers/specs/2026-11-07-rich-text-post-editor.md).
 The existing public sanitizer and post-sanitize image/gallery guards remain unchanged.
+
+**Linear-time source parsing (#607, #615, 2026-11-17).** The editor's trailing-line split is
+a single backward scan, and its gallery-opener pattern has exactly one way to match any
+prefix, so a crafted draft cannot stall the editor tab through these two patterns. The
+gallery analyzer compares closing fences in code and builds no pattern from submitted text.
 
 **Public journeys (#310)** have no new public write endpoint. Their loader imports the
 same exported read-only database epoch as stories and language, fails closed on invalid
@@ -1851,8 +1863,10 @@ the journeys spec §21; this documentation records no production migration or re
   Protect offsite copies and retain separate key escrow as described in
   [Backups & disaster recovery](ARCHITECTURE.md#backups--disaster-recovery).
 - The download route (`GET /backups/:name`) is **admin-only** and validates the filename against a
-  strict pattern (`^db-\d{8}-\d{6}\.json\.gz$` or `^images-\d{8}-\d{6}\.tar$`) before touching the
-  filesystem — no path traversal.
+  strict pattern (`^db-\d{8}-\d{6}\.json\.gz$`, `^images-\d{8}-\d{6}\.tar$` or
+  `^routes-\d{8}-\d{6}-[0-9a-f]{32}\.tar$`) before touching the filesystem. The accepted name is
+  then resolved inside the backup directory (`backupFilePath`), refused unless it is a direct
+  child of it, and opened with `O_NOFOLLOW` as a regular, singly linked file (#618).
 - Restore is **CLI-only**, never a web route. Confirm the intended image, database and `/data`
   mount, retain the source recovery set, stop every app/maintenance writer sharing them and
   wait for exit and drained database sessions; keep Postgres running. Use:

@@ -7,7 +7,7 @@ import { list as listTar } from 'tar';
 import {
   dumpDatabase, readDump, listBackups, listImageArchives, pruneBackups, readState, writeState, isBackupDue,
   createDbBackup, archiveImages, sweepTempFiles, ArchiveSpaceError, BackupError,
-  BACKUP_FILE_RE, IMAGES_ARCHIVE_RE, DUMP_VERSION, resolveBackupDir, type Connectable,
+  BACKUP_FILE_RE, IMAGES_ARCHIVE_RE, DUMP_VERSION, backupFilePath, resolveBackupDir, type Connectable,
 } from '../src/backup.js';
 import { identityDumpRow } from './site-identity-fixture.js';
 import { DEFAULT_NAVIGATION } from '../../site/src/lib/navigation.js';
@@ -55,6 +55,29 @@ describe('resolveBackupDir', () => {
     // The .env.example bare-dev block sets only STORAGE_DIR; the export must
     // land beside it, not fail with EACCES on the developer's root filesystem.
     expect(resolveBackupDir({ STORAGE_DIR: './data/images' })).toBe('data/backup');
+  });
+});
+
+describe('backupFilePath', () => {
+  const names = ['db-20260703-120000.json.gz', 'images-20260703-120000.tar', `routes-20260703-120000-${'0123456789abcdef'.repeat(2)}.tar`];
+
+  it('places every accepted backup name directly inside the root, an absolute, relative or trailing-slash directory', () => {
+    for (const [dir, resolved] of [
+      ['/', ''],
+      ['/srv/backup', '/srv/backup'],
+      ['/srv/backup/', '/srv/backup'],
+      ['data/backup', join(process.cwd(), 'data/backup')],
+    ] as const) {
+      for (const name of names) expect(backupFilePath(dir, name)).toBe(`${resolved}/${name}`);
+    }
+  });
+
+  it('answers null for a name that is not a single file directly inside the directory', () => {
+    for (const dir of ['/srv/backup', '/']) {
+      for (const name of ['', '.', '..', 'a/b', '/etc/passwd', '../x']) {
+        expect(backupFilePath(dir, name), `${dir} + ${JSON.stringify(name)}`).toBeNull();
+      }
+    }
   });
 });
 

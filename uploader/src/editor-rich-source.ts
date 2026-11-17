@@ -69,9 +69,18 @@ function normalize(source: string): { text: string; boundary: number[] } {
   return { text, boundary };
 }
 
+/** Split off the final line break and any blank lines after it. A backward scan
+ * keeps this linear: a regular expression here backtracks on long CRLF runs. */
 function trailingLines(source: string): [string, string] {
-  const match = /(?:\r\n|\r|\n)(?:[ \t]*(?:\r\n|\r|\n))*$/.exec(source);
-  return match ? [source.slice(0, match.index), source.slice(match.index)] : [source, ''];
+  let split = -1;
+  for (let i = source.length - 1; i >= 0; i--) {
+    const code = source.charCodeAt(i);
+    if (code === 10 || code === 13) split = i;
+    else if (code !== 32 && code !== 9) break;
+  }
+  const last = source.charCodeAt(source.length - 1);
+  if (split < 0 || (last !== 10 && last !== 13)) return [source, ''];
+  return [source.slice(0, split), source.slice(split)];
 }
 
 function children(value: unknown): Token[] {

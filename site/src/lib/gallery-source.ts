@@ -305,7 +305,8 @@ function fenceBlock(node: SourceNode, source: string, start: number, end: number
   const last = rows.at(-1);
   // This is only closure provenance for an ALREADY PARSED code node. It cannot
   // admit/reject gallery identity; the sanitized pre/code predicate does that.
-  const closing = last && last !== opener && new RegExp(`^[ >\\t]*${run[0] === '`' ? '`' : '~'}{${run.length},}[ \\t]*$`).test(last.text) && rows.length - 2 >= values.length;
+  const closingRun = last && last !== opener ? last.text.match(/^[ >\t]*(`{3,}|~{3,})[ \t]*$/u)?.[1] : undefined;
+  const closing = closingRun !== undefined && closingRun[0] === run[0] && closingRun.length >= run.length && rows.length - 2 >= values.length;
   const contentRows = rows.slice(1, closing ? -1 : undefined);
   const lines = values.map((value, index) => {
     const row = contentRows[index];

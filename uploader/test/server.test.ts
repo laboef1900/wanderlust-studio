@@ -463,6 +463,7 @@ describe('article translation source endpoints', () => {
       const prepared = await b.app.inject({ method: 'POST', url: '/translation/prepare', cookies: cookie, payload: source });
       expect(prepared.statusCode).toBe(200);
       expect(prepared.headers['cache-control']).toBe('no-store');
+      expect(prepared.headers['content-type']).toBe('application/json; charset=utf-8');
       const plan = prepared.json<{ slots: { id: string; text: string }[]; warnings: string[] }>();
       expect(Object.keys(plan).sort()).toEqual(['slots', 'warnings']);
       expect(plan.slots.map(slot => slot.text)).toEqual(expect.arrayContaining(['Titel', 'Kurz']));
@@ -472,6 +473,7 @@ describe('article translation source endpoints', () => {
       });
       expect(validated.statusCode).toBe(200);
       expect(validated.headers['cache-control']).toBe('no-store');
+      expect(validated.headers['content-type']).toBe('application/json; charset=utf-8');
       expect(Object.keys(validated.json()).sort()).toEqual(['bodyMarkdown', 'excerpt', 'images', 'title']);
       expect(validated.json()).toMatchObject({ title: 'Translated Titel', excerpt: 'Translated Kurz', images: {} });
       expect(validated.json().bodyMarkdown).toContain('**Translated Weg**');
@@ -5586,6 +5588,13 @@ describe('backup routes', () => {
     expect(tarOk.statusCode).toBe(200);
     expect(tarOk.headers['content-type']).toBe('application/x-tar');
     expect(tarOk.headers['content-disposition']).toContain('attachment');
+    const routesName = `routes-20260703-120000-${'0123456789abcdef'.repeat(2)}.tar`;
+    await writeFile(join(backupDir, routesName), 'routebytes');
+    const routesOk = await b.app.inject({ method: 'GET', url: `/backups/${routesName}`, cookies: cookie });
+    expect(routesOk.statusCode).toBe(200);
+    expect(routesOk.headers['content-type']).toBe('application/x-tar');
+    expect(routesOk.headers['content-disposition']).toBe(`attachment; filename="${routesName}"`);
+    expect(routesOk.body).toBe('routebytes');
     for (const evil of ['..%2Fsettings.json', 'state.json', 'db-1.json.gz', 'images-1.tar', 'images-20260703-120000.tar.gz']) {
       const res = await b.app.inject({ method: 'GET', url: `/backups/${evil}`, cookies: cookie });
       expect([400, 404]).toContain(res.statusCode);
