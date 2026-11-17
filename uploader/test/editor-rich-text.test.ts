@@ -197,9 +197,12 @@ describe('gallery and image safety', () => {
 
   it.each([
     ['top level', '', ''],
+    ['indented top level', '   ', '   '],
     ['quote', '> ', '> '],
+    ['quote without a blank', '>', '>'],
     ['quote with a tab', '>\t', '>\t'],
     ['nested quotes', '> > ', '> > '],
+    ['nested quotes without blanks', '>>', '>>'],
     ['nested quotes with tabs', '>\t>\t', '>\t>\t'],
     ['bullet list', '- ', '  '],
     ['plus list', '+ ', '  '],
