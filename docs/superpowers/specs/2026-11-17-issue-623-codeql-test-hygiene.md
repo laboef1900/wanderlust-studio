@@ -299,3 +299,41 @@ Two non-blocking notes, both taken: row 2's "today" column now says any joined t
 appear (wording only, made after approval), and the implementation compares a case-folded
 slice per candidate instead of searching a lower-cased copy of the string, whose indices
 can drift.
+
+### Implementation
+
+Supervised Orca workers, each in its own worktree from the commit holding the approved
+design: T1 (harness parser, Desk suites, harness suite) on OMP
+`anthropic/claude-sonnet-5-5` launched at effort `high` (dispatch `ctx_de5d71a485f1`); T2
+(the six mechanical fixes) on OMP `anthropic/claude-haiku-5-5` at effort `low` (dispatch
+`ctx_64369e8b1186`). The implementer's differential matched the reviewer's: 6461 calls, 38
+distinct inputs, 0 mismatches.
+
+### Integrated diff (head `ad749f3524fa7cd78cd6d478e18dffbbdb6a2011`): approved
+
+Independent review of `origin/dev...HEAD` by a fresh session (`anthropic/claude-opus-5-5`,
+launched at effort `high`, Orca dispatch `ctx_eafc917e7fcd`). The `/review` command was not
+available to it, so it ran OMP's bundled `reviewer` agent, the one that command uses,
+directly, and verified each finding itself. It ran the old and new parser side by side on
+the full uploader unit run (0 mismatches from existing suites), fuzzed one million random
+strings (every mismatch inside the five rows), and mutation-tested the harness suite.
+Verdict: **approved**, no must-fix finding.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| F1: two off-by-one parser mutants survived the harness suite | should-fix | Accepted. Pins for `<!--->x-->y` and `<script x="</script>">a</script>b` added by the T1 implementer. |
+| F2: "no new failure path" overlooked the decoded script `src` | nit | Accepted. *Failure handling* states it. |
+| F3: rows 1 and 2 can hide markup the old parser showed | nit | Accepted. Stated under the table with the reviewer's example. |
+| F4: the fixture sees six URLs, not three | nit | Accepted. |
+| F5: no pin for a duplicate `src`; the status entry omitted three parts | nit | Accepted. Pin added; entry completed. |
+
+The same reviewer checked the fixes at head `ec9c387e87f9961174e661355333f2f116b21a26`
+(dispatch `ctx_c2aed728a219`): **approved**, no new finding. Each of its three mutants now
+fails exactly its new pin. The commit after that head adds only this record.
+
+### CodeQL evidence
+
+The pull-request scan reported 0 results on the changed lines. A full `security.yml` scan
+of the branch at `ad749f3` (run 44125174070) lists 11 open alerts, exactly 5, 13 to 16 and
+27 to 32 (epic #622, production code); `dev` at `929cd3f` lists 24. Alerts 4, 6 to 12 and
+19 to 23 are absent.
