@@ -1,3 +1,4 @@
+import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AuthGuard } from './authn.js';
 import { GPX_LIMITS, type TrimSelection } from '../public/gpx-geometry.js';
@@ -6,6 +7,7 @@ import type { AttachRouteInput, GpxService } from './gpx-service.js';
 import type { RouteTokens } from './gpx-store.js';
 import { SOURCE_ID_RE } from './gpx-files.js';
 import { readGpxUpload } from './gpx-upload.js';
+import { GPX_RATE_LIMIT, RATE_LIMIT_PLUGIN_OPTIONS } from './rate-limit.js';
 import { isPlainObject, isStrictIsoUtc } from './request-guards.js';
 
 function closedObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
@@ -35,6 +37,13 @@ function params(request: FastifyRequest): { tk: string; id: string } {
   return { tk: value.tk ?? '', id: value.id ?? '' };
 }
 
+/**
+ * Every GPX route shares one per-address ceiling (`GPX_RATE_LIMIT`), enforced
+ * by a scope-wide `onRequest` hook in front of the session-and-origin hook, so
+ * a refused request does no session lookup and reads no body. That hook marks
+ * the request as limited for this plugin instance: a per-route
+ * `config.rateLimit` added later in this scope would be skipped by the plugin.
+ */
 export function registerGpxRoutes(app: FastifyInstance, { gpx, requireAuth }: { gpx: GpxService; requireAuth: AuthGuard }): void {
   app.register(async (routes) => {
     routes.setErrorHandler((error: unknown, _request, reply) => {
@@ -48,6 +57,8 @@ export function registerGpxRoutes(app: FastifyInstance, { gpx, requireAuth }: { 
       const code = status === 413 ? 'gpx_too_large' : status >= 400 && status < 500 ? 'gpx_invalid_request' : 'gpx_unavailable';
       return reply.code(status >= 400 && status < 500 ? status : 503).header('cache-control', 'no-store').send({ error: code });
     });
+    await routes.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
+    routes.addHook('onRequest', routes.rateLimit({ ...GPX_RATE_LIMIT, errorResponseBuilder: () => new GpxError('gpx_busy', 429) }));
     routes.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store');
       await requireAuth(request, reply);

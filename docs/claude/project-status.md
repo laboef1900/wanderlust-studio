@@ -4,6 +4,23 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Security hardening (issue #622, 2026-11-17): CodeQL warning-level findings.** The eleven
+  `warning`-level code-scanning alerts in production code are fixed. The WordPress importer
+  escapes backslashes (and `<`/`>` in angle form) in degraded inline-image destinations, and
+  the image scan (`IMAGE_RE` in `uploader/src/wp-content.ts`) reads those escapes back and no
+  longer treats a bare destination starting with `<` as an image (#609). Console logging in
+  `uploader/src` uses constant format strings (#620). The editor's hero preview only loads
+  absolute http(s) URLs and the settings preview asserts its `blob:` URL (#613). **New
+  behavior (#619):** the GPX routes are limited to 300 requests per minute per address
+  (refused as `429 gpx_busy`, before the session lookup) and `GET /backups/:name` to 30 per
+  minute per address (after the admin check), enforced by the new dependency
+  `@fastify/rate-limit`; `/login`, `/setup` and `/users/me/password` keep their in-house
+  limiters and move, unchanged, into a plugin scope. The three rate-limited scopes are
+  registered last in `buildServer` and must stay last (`SECURITY.md`, *Rate limiting*). No
+  route path, schema or data change. The alerts close when `dev` is rescanned after merge.
+  High-risk design approved by an independent AI reviewer under a scoped, recorded exception.
+  See `docs/superpowers/specs/2026-11-17-issue-622-codeql-warning-level-hardening.md`.
+
 - **Test hygiene (issue #623, 2026-11-17): CodeQL findings in test code.** The 13
   code-scanning alerts in unit tests and DOM harnesses are fixed without loosening an
   assertion; no production file changed. The DOM harness (`uploader/test/editor-dom-harness.ts`)

@@ -1926,11 +1926,18 @@
           const encoded = await res.blob();
           const size = (name) => Number(res.headers.get(name)) || 0;
           clearPreview();
-          previewUrls = [URL.createObjectURL(file), URL.createObjectURL(encoded)];
+          const originalUrl = URL.createObjectURL(file);
+          const encodedUrl = URL.createObjectURL(encoded);
+          previewUrls = [originalUrl, encodedUrl];
+          if (!/^blob:[\w.~:\/?#\[\]@!$&'()*+,;=%\-]+$/.test(originalUrl)) {
+            clearPreview();
+            $('previewOut').textContent = refusal('generate the preview');
+            return;
+          }
           previewWidth = size('X-Preview-Width');
-          $('previewOriginal').src = previewUrls[0];
+          $('previewOriginal').src = originalUrl;
           $('previewOriginal').hidden = false;
-          $('previewEncoded').src = previewUrls[1];
+          $('previewEncoded').src = encodedUrl;
           $('previewEncoded').hidden = false;
           $('previewEncoded').alt = 'Test photo encoded as ' + f.label + ' at quality ' + quality;
           const kind = (String(file.type).replace(/^image\//, '') || 'image').toUpperCase();

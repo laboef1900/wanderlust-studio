@@ -54,7 +54,9 @@ const elementorLightboxGallery: TurndownService.Rule = {
  */
 function inlineImage(href: string, title: string): string {
   const alt = title.replace(/[\\[\]]/g, '\\$&');
-  const dest = /\s/.test(href) ? `<${href}>` : href.replace(/[()]/g, '\\$&');
+  const dest = /[\s<>]/.test(href)
+    ? `<${href.replace(/[\\<>]/g, '\\$&')}>`
+    : href.replace(/[\\()]/g, '\\$&');
   return `![${alt}](${dest})`;
 }
 
@@ -148,10 +150,10 @@ export interface MarkdownImage {
  *
  * Grammar (CommonMark §6.4, restricted to what Turndown can produce):
  *   alt   = ( "\" any | [^\]\\] )*
- *   dest  = "<" [^<>\n]* ">"  |  ( "\" punct | [^\s()\\] | "(" … ")" )*   — one level of balanced parens
+ *   dest  = "<" ( "\" any | [^<>\\\n] )* ">"  |  (?!"<") ( "\" punct | [^\s()\\] | "(" … ")" )*   — one level of balanced parens
  *   title = optional, after whitespace: "…" | '…' | (…), with backslash escapes
  */
-const IMAGE_RE = /!\[((?:\\.|[^\]\\])*)\]\(\s*(?:<([^<>\n]*)>|((?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\])*\))*))(?:\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?\s*\)/g;
+const IMAGE_RE = /!\[((?:\\.|[^\]\\])*)\]\(\s*(?:<((?:\\.|[^<>\\\n])*)>|(?!<)((?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\])*\))*))(?:\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?\s*\)/g;
 
 /**
  * Every inline Markdown image OUTSIDE ```gallery fences, in body order.

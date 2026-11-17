@@ -739,6 +739,13 @@ logs the full error server-side (stdout, captured by Docker) and returns a **gen
 never reach the client. Intentional 4xx framework responses (body-size 413, malformed JSON 400)
 keep their sanitized messages. (`uploader/src/server.ts`)
 
+The error handler and the `console.error` calls in the post, media, backup and build code
+pass a constant format string with their values as `%s` arguments (#620), so request- or
+storage-derived text is never read as a format directive there. Before, a failing request
+for a URL with lowercase percent-encoding (`%c3%a4`) was logged with its error and stack
+swallowed by the `%c` directive. (The encode queue's log line still interpolates a storage
+key, which `assertSafeKey` limits to `a-z 0-9 / _ -`.)
+
 WXR scalar text reconstruction (#388) concatenates adjacent CDATA fragments without
 inventing separators; it preserves actual commas and the existing parser policy.
 This does not relax XML/entity limits or `WxrParseError`'s fixed public error,
@@ -790,15 +797,56 @@ builds its own per-IP map (5 per address per 15 minutes) and its own single-key 
 not lock the owner out of the admin, and a login brute-force must not take comments down. The
 key is `req.ip`, never the reader-chosen `authorName`. A route test proves the maps are distinct.
 
-Every limiter map is **bounded**: at most 10 000 tracked keys, with expired windows swept first and
-the earliest-expiring live window evicted at the cap (amortised O(1) — there is no full sweep an
-attacker can trigger per request). Eviction can only forget a counter, never refuse a request, so
-a flood of distinct usernames cannot lock anyone out. Key length is bounded too: new usernames are
-capped at 64 characters, and the account limiter stores anything longer under its SHA-256 hex, so
-a 1 MiB submitted name costs the map 64 characters — while an account that predates the cap keeps
-signing in and keeps its own budget. All of it is in-memory and dependency-free
-(`uploader/src/rate-limit.ts`); with a single container that is sufficient. (If ever scaled to
-multiple replicas, limits would be counted per replica.)
+Every in-house limiter map is **bounded**: at most 10 000 tracked keys, with expired windows swept
+first and the earliest-expiring live window evicted at the cap (amortised O(1) — there is no full
+sweep an attacker can trigger per request). Eviction can only forget a counter, never refuse a
+request, so a flood of distinct usernames cannot lock anyone out. Key length is bounded too: new
+usernames are capped at 64 characters, and the account limiter stores anything longer under its
+SHA-256 hex, so a 1 MiB submitted name costs the map 64 characters — while an account that
+predates the cap keeps signing in and keeps its own budget. These limiters are in-memory and
+dependency-free (`uploader/src/rate-limit.ts`); with a single container that is sufficient. (If
+ever scaled to multiple replicas, limits would be counted per replica.)
+
+### Request ceilings on the GPX routes and backup downloads (#619)
+
+Two further ceilings are enforced by `@fastify/rate-limit`, per client address (`req.ip`, so the
+trusted-proxy rules above apply; IPv6 addresses are grouped by /64), in the plugin's in-memory
+stores (an LRU of 5000 keys per limiter):
+
+- **GPX routes** (`/gpx/imports*`, `/posts/:tk/route*`): 300 requests per minute, shared by all
+  of them. The limiter is the first hook of the GPX plugin scope, **before** the session lookup
+  and before any body is read, so it bounds the session lookups and upload admissions one
+  address can cause. A refusal is the existing `429 {"error":"gpx_busy"}` with `Retry-After` and
+  `Cache-Control: no-store`. **Residual, accepted:** callers that share an address share the
+  budget, so an anonymous flood from the author's own network (or through a mis-set
+  `TRUSTED_PROXY`, which makes every client share the proxy's address) can hold GPX editing at
+  "busy" for as long as it lasts — the same exposure `/login` has. The counters reset after one
+  minute.
+- **`GET /backups/:name`**: 30 downloads per minute. The limiter runs at the `preHandler`
+  stage, **after** `requireAdmin`: anonymous and non-admin requests keep answering 401/403 and
+  never consume the budget, so only an admin session can exhaust it. Fastify's implicit `HEAD`
+  twin has its own bucket of the same size. A refusal is
+  `429 {"error":"too many requests, please wait and try again"}` with `Retry-After`.
+
+Allowed responses carry no rate-limit header. Within the budgets, responses are unchanged.
+
+**Where the plugin is registered, and why last.** The plugin is not registered on the root
+instance. It is registered in exactly three child scopes: the GPX plugin, a scope holding only the
+backup download, and a scope holding `POST /setup`, `POST /login` and `POST /users/me/password`.
+In the third it limits nothing — those routes stay on the in-house limiters described above — and
+is there because CodeQL's `js/missing-rate-limiting` cannot model in-house limiters: the
+registration is what makes the query credit three routes that are limited. Each scope is honest by
+construction: the GPX scope's hook covers every route in it, and the other two carry an `onRoute`
+guard (`requireRouteLimiter`) that fails the boot for a route without its limiter. A root
+`onRoute` guard fails the boot for a `config.rateLimit` declared where no plugin would enforce it.
+
+CodeQL credits every route declared, in source order, **after** a registration of this plugin —
+also after a child scope that contains one, since its model does not know that Fastify plugins
+are encapsulated. `buildServer` therefore registers the three scopes in one block after every
+other route. **Keep that block last:** a route declared after it would be reported as
+rate-limited without being so. A scan of a throwaway branch with a deliberately unlimited route
+before the block confirmed that the query still reports it
+(`docs/superpowers/specs/2026-11-17-issue-622-codeql-warning-level-hardening.md`).
 
 ## Input validation
 
@@ -1586,6 +1634,22 @@ is static markup with one inline `<style>` and no scripts, so a sanitizer regres
 `<script>` through becomes a blocked no-op on the admin origin rather than session XSS. Side
 effect, accepted: a draft that references an image on any other origin shows it broken in the
 preview even though the live site would load it.
+
+### Imported inline images and admin preview sources (#609, #613)
+
+- **Importer.** A lightbox anchor the importer degrades to an inline image
+  (`inlineImage` in `uploader/src/wp-content.ts`) escapes `\`, `(` and `)` in a bare destination
+  and uses the angle form, with `\`, `<` and `>` escaped, whenever the URL contains whitespace,
+  `<` or `>`. A hostile export can therefore not end the destination early. The image scan
+  (`IMAGE_RE`, used by the re-host pass, the export, the alt audit and media-sync) reads those
+  escapes back, so such a photo is still found and re-hosted; it follows CommonMark in not
+  treating a bare destination that starts with `<`, or an angle destination whose closing
+  bracket is escaped, as an image.
+- **Editor hero preview.** The preview images only load an absolute `http:`/`https:` URL made
+  of URL characters; anything else in the stored hero field is shown as "no thumbnail". An
+  `<img>` does not execute a `javascript:` URL, so this is defense in depth.
+- **Settings image preview.** The object URL made from the picked file is asserted to be a
+  `blob:` URL before it is assigned; otherwise the preview is cleared and refused.
 
 ## Transport, headers & proxy
 

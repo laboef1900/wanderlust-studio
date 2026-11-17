@@ -2766,6 +2766,57 @@ describe('editor.html inline script against its own markup', () => {
       expect(el('deHeroFocus').hidden).toBe(true);
     });
 
+  const HERO_IMAGES = ['deHeroFocusImg', 'deHeroPreviewImg', 'deHeroThumbImg'];
+  // The harness keeps `src` as a plain property; make it reflect the attribute so a removed src is observable.
+  const reflectSrc = (img: { attrs: Record<string, string>; setAttribute(n: string, v: string): void }) => {
+    Object.defineProperty(img, 'src', { get: () => img.attrs.src ?? '', set: (v: string) => img.setAttribute('src', v), configurable: true });
+  };
+
+  it.each([
+    ['https', 'https://img.example.com/hero'],
+    ['http', 'http://img.example.com/hero'],
+    ['a base with a port', 'http://localhost:3000/uploads/hero'],
+    ['an IPv6 literal host', 'http://[::1]:3000/uploads/hero'],
+    ['an IDN host', 'https://bücher.example/uploads/hero'],
+    ['a trailing-slash base', 'https://img.example.com//hero'],
+  ])('previews a hero served over %s', async (_name, src) => {
+      const { api, el } = await loadEditor();
+      HERO_IMAGES.forEach((id) => reflectSrc(el(id)));
+      const pair = fullPair();
+      pair.de.heroImage = { src, width: 768, height: 512, alt: 'a' };
+      api.populateForm(pair);
+      for (const id of ['deHeroFocus', 'deHeroPreview', 'deHeroThumb']) expect(el(id).hidden).toBe(false);
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).toBe(src + '-640.webp');
+    });
+
+  it.each([
+    ['a script scheme', 'javascript:void(0)'],
+    ['a data URL', 'data:image/png;base64,AAAA'],
+    ['a relative path', '/uploads/hero'],
+    ['a space', 'https://img.example.com/my hero'],
+    ['a double quote', 'https://img.example.com/he"ro'],
+  ])('hides every hero view and drops its src for %s', async (_name, src) => {
+      const { api, el } = await loadEditor();
+      HERO_IMAGES.forEach((id) => reflectSrc(el(id)));
+      const pair = fullPair();
+      pair.de.heroImage = { src, width: 768, height: 512, alt: 'a' };
+      api.populateForm(pair);
+      for (const id of ['deHeroFocus', 'deHeroPreview', 'deHeroThumb', ...HERO_IMAGES]) expect(el(id).hidden).toBe(true);
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).toBeNull();
+    });
+
+  it('clears a previewing hero when it is replaced by a rejected one', async () => {
+      const { api, el } = await loadEditor();
+      HERO_IMAGES.forEach((id) => reflectSrc(el(id)));
+      api.populateForm(fullPair());
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).not.toBeNull();
+      const pair = fullPair();
+      pair.de.heroImage = { src: 'javascript:void(0)', width: 768, height: 512, alt: 'a' };
+      api.populateForm(pair);
+      for (const id of ['deHeroFocus', 'deHeroPreview', 'deHeroThumb']) expect(el(id).hidden).toBe(true);
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).toBeNull();
+    });
+
   it('shows the library action directly for a set or missing image and thumbnails a present one', async () => {
       const { api, el, document } = await loadEditor();
       const pair = fullPair();

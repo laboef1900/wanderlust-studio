@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest, onRouteHookHandler, RouteOptions } from 'fastify';
+import type { RateLimitOptions as PluginRateLimitOptions, RateLimitPluginOptions } from '@fastify/rate-limit';
 
 export interface RateLimiter {
   /** Returns true if the request is allowed, false if it should be blocked. */
@@ -160,5 +161,40 @@ export function accountLockoutLimiter({ max = 5, windowMs = 900_000, maxKeys = D
       if (!username) return;
       failures.delete(normalize(username));
     },
+  };
+}
+
+const NO_RATE_LIMIT_HEADERS = { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false } as const;
+
+/**
+ * Options for every `@fastify/rate-limit` registration (#619). The plugin is
+ * registered only inside child scopes whose every route is limited (see
+ * SECURITY.md, Rate limiting), never on the root instance. `global: false`:
+ * a registration limits nothing by itself. Allowed responses gain no header;
+ * a refusal carries `Retry-After` only.
+ */
+export const RATE_LIMIT_PLUGIN_OPTIONS: RateLimitPluginOptions = {
+  global: false,
+  ipv6Subnet: 64,
+  addHeaders: NO_RATE_LIMIT_HEADERS,
+  addHeadersOnExceeding: NO_RATE_LIMIT_HEADERS,
+  errorResponseBuilder: (_req, context) => Object.assign(new Error('too many requests, please wait and try again'), { statusCode: context.statusCode }),
+};
+
+/** Per address, shared by every GPX route: an abuse ceiling, not a throttle. */
+export const GPX_RATE_LIMIT = { max: 300, timeWindow: 60_000 } as const satisfies PluginRateLimitOptions;
+
+/** Per address, for `GET /backups/:name` (its `HEAD` twin has a bucket of its own). */
+export const BACKUP_DOWNLOAD_RATE_LIMIT = { max: 30, timeWindow: 60_000 } as const satisfies PluginRateLimitOptions;
+
+/**
+ * `onRoute` hook for a rate-limited scope: a route the predicate does not
+ * accept fails the boot, so every route declared in the scope is limited by
+ * construction. Added to a scope, it also sees routes of nested child scopes
+ * and of non-encapsulated plugins registered in it.
+ */
+export function requireRouteLimiter(isLimited: (route: RouteOptions) => boolean, label: string): onRouteHookHandler {
+  return (route) => {
+    if (!isLimited(route)) throw new Error(`${[route.method].flat().join(',')} ${route.url} must be rate-limited (${label})`);
   };
 }
