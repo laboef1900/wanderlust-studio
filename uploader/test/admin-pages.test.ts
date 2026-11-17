@@ -717,4 +717,17 @@ describe('admin UI control scale and stylesheet token consistency', () => {
     expect(editorHtml).toMatch(/<details class="editor-actions-menu" id="editorActionsMenu">[\s\S]*id="reviewStory"[\s\S]*<\/details>/);
     expect(settingsHtml).toMatch(/<button id="addProvider" type="button" class="btn-secondary btn-sm"/);
   });
+
+  it('uses an 11.7rem sidebar and unified 100rem centering measure across admin pages', () => {
+    const journeysCss = readFileSync('public/journeys.css', 'utf8');
+    expect(adminCss).toContain('--cms-sidebar-w: 11.7rem;');
+    expect(adminCss).toContain('--cms-content-max: 100rem;');
+    expect(adminCss).toMatch(/\.cms-topbar\s*\{[^}]*max-width:\s*var\(--cms-content-max\)/);
+    expect(adminCss).toMatch(/\.cms-content\s*\{[^}]*max-width:\s*var\(--cms-content-max\)/);
+    expect(adminCss).not.toMatch(/\.(desk-page|license-page|posts-page)\s+\.cms-(topbar|content)\s*[,{][^}]*max-width/);
+    expect(adminCss).not.toContain('.cms-workspace:has(.media-layout) .cms-topbar');
+    expect(adminCss).not.toContain('.cms-content:has(.media-layout)');
+    expect(adminCss).toMatch(/body\.settings-page\s+\.settings-layout\s*\{[^}]*grid-template-columns:\s*11rem minmax\(0,\s*1fr\)/);
+    expect(journeysCss).toContain('max-width: var(--cms-content-max, 100rem);');
+  });
 });

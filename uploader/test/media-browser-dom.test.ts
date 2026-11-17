@@ -226,6 +226,7 @@ interface Page {
   /** Every item GET the page sent, with its query string. */
   itemReads: string[];
   described: string[];
+  selectMenus: { enhanced: string[]; syncs: string[]; closes: string[] };
   confirms: string[];
   confirmAnswer: { value: boolean };
   prompts: Prompt[];
@@ -320,6 +321,7 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
     });
     return promise;
   };
+  const selectMenus: { enhanced: string[]; syncs: string[]; closes: string[] } = { enhanced: [], syncs: [], closes: [] };
   const describePhoto = opts.describe ?? (async () => DETAILS);
   const ctx: Record<string, unknown> = {
     document: {
@@ -330,6 +332,7 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
       getElementById,
       get activeElement() { return focusState.activeElement; },
       createElement: (tag: string) => new FakeNode(tag, focusState),
+      createElementNS: (_ns: string, tag: string) => new FakeNode(tag, focusState),
       createTextNode: (text: string) => Object.assign(new FakeNode('#text', focusState), { textContent: text }),
     },
     location: { href: '', origin: 'https://app.example', protocol: 'https:', pathname: '/admin/media.html', search: opts.search ?? '' },
@@ -384,6 +387,16 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
       Object.fromEntries(Object.entries(strings).filter(([key]) => key.startsWith('editor.chrome.')).map(([key, value]) => [key.slice('editor.chrome.'.length), value])),
     ])),
     MediaConditional,
+    AdminSelect: {
+      enhance: (select: FakeNode, o?: { label?: string }) => {
+        selectMenus.enhanced.push(select.id + ':' + (o?.label ?? ''));
+        return {
+          sync: () => { selectMenus.syncs.push(select.id + '=' + select.value); },
+          close: () => { selectMenus.closes.push(select.id); },
+          trigger: select,
+        };
+      },
+    },
     EditorGalleryImageOrigin: 'https://img.example',
     AltSuggest: {
       loadConfig: async () => ({
@@ -413,7 +426,7 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
   vm.runInContext(impactSrc, ctx);
   vm.runInContext(browserSrc, ctx);
   const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await setImmediate(); };
-  return { el, activeElement: () => focusState.activeElement, win: ctx, timers, listRequests, uploadRequests, patches, deletions, rows, versions, itemReads, described, confirms, confirmAnswer, prompts, promptAnswer, flush,
+  return { el, activeElement: () => focusState.activeElement, win: ctx, timers, listRequests, uploadRequests, patches, deletions, rows, versions, itemReads, described, selectMenus, confirms, confirmAnswer, prompts, promptAnswer, flush,
     urlState: () => { const last = urlWrites.at(-1) ?? ''; return last.includes('?') ? last.slice(last.indexOf('?')) : ''; },
     focus: () => windowEvents.dispatch('focus'),
     lifecycle: (type, persisted) => windowEvents.dispatch(type, { persisted }),
@@ -454,7 +467,7 @@ describe('media-browser empty states', () => {
     page.el('emptyChoosePhotos').click();
     expect(choose).toHaveBeenCalledOnce();
     expect(page.el('fileInput').focused).toBe(true);
-    expect(page.el('dropZone').open).toBe(true);
+    expect(page.el('uploadDialog').open).toBe(true);
     if (!options.isAdmin) expect(page.el('rescan').hidden).toBe(true);
     expect(page.patches).toHaveLength(0);
   });
@@ -558,6 +571,64 @@ describe('media-browser current folder', () => {
   });
 });
 
+describe('media-browser upload modal', () => {
+  it('places the upload button directly left of Generate details with AI and removes the top upload card', () => {
+    expect(markup).not.toContain('media-upload__disclosure');
+    expect(markup).not.toContain('<section class="card media-upload">');
+    const uploadPos = markup.indexOf('id="uploadOpen"');
+    const aiPos = markup.indexOf('id="aiAll"');
+    expect(uploadPos).toBeGreaterThan(-1);
+    expect(aiPos).toBeGreaterThan(uploadPos);
+  });
+
+  it('opens the modal defaulting to the current folder, allows choosing a target folder, accepts dropped or selected files, and closes', async () => {
+    const page = loadPage({ folders: ['Trips/North', 'Trips/South'] });
+    await page.flush();
+    page.listRequests.shift()!.resolve({ items: [], total: 0 });
+    await page.flush();
+
+    expect(page.el('uploadOpen').textContent).toBe(ui.en['editor.chrome.mediaUpload']);
+    expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder', 'fStatus:', 'fAlt:', 'moveTarget:']);
+
+    page.el('uploadOpen').click();
+    expect(page.el('uploadDialog').open).toBe(true);
+    expect(page.el('fileInput').focused).toBe(true);
+    expect(page.el('uploadFolder').value).toBe('');
+    expect(page.el('uploadFolder').children.map((option) => option.value)).toEqual(['', 'Trips/North', 'Trips/South']);
+    expect(page.selectMenus.syncs.at(-1)).toBe('uploadFolder=');
+
+    page.el('uploadClose').click();
+    expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.selectMenus.closes).toEqual(['uploadFolder']);
+
+    page.el('folderTree').querySelectorAll('.folder-btn')[1]!.dispatch('click');
+    await page.flush();
+    page.listRequests.shift()!.resolve({ items: [], total: 0 });
+    await page.flush();
+
+    page.el('uploadOpen').click();
+    expect(page.el('uploadDialog').open).toBe(true);
+    expect(page.el('uploadFolder').value).toBe('Trips/North');
+    expect(page.selectMenus.syncs.at(-1)).toBe('uploadFolder=Trips/North');
+
+    page.el('dropZone').dispatch('drop', { dataTransfer: { files: [{ name: 'fjord.jpg' }] } });
+    expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.uploadRequests).toHaveLength(1);
+    expect(page.uploadRequests[0]!.fields.get('folder')).toBe('Trips/North');
+    expect(page.el('uploadQueue').hidden).toBe(false);
+
+    page.el('uploadOpen').click();
+    expect(page.el('uploadDialog').open).toBe(true);
+    page.el('uploadFolder').value = 'Trips/South';
+    Object.assign(page.el('fileInput'), { files: [{ name: 'ridge.jpg' }] });
+    page.el('fileInput').dispatch('change');
+    expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.uploadRequests).toHaveLength(2);
+    expect(page.uploadRequests[1]!.fields.get('folder')).toBe('Trips/South');
+  });
+});
+
 describe('media-browser upload completion', () => {
   it('names a refusal for each file it will not send, sends the rest, and asks to keep the tab open only while sending', async () => {
     const page = loadPage({ locale: 'de' });
@@ -614,10 +685,10 @@ describe('media-browser upload completion', () => {
     page.uploadRequests[0]!.resolve({ key: 'new', status: 'ready' });
     await page.flush();
     runTimers(page.timers);
-    page.el('dropZone').focus();
+    page.el('uploadOpen').focus();
     page.listRequests.shift()!.resolve({ items: [item('existing'), item('new')], total: 2 });
     await page.flush();
-    expect(page.activeElement()).toBe(page.el('dropZone'));
+    expect(page.activeElement()).toBe(page.el('uploadOpen'));
   });
 
   it('keeps a clean focused detail input until typing, but refreshes it after an explicit save', async () => {
@@ -2606,15 +2677,13 @@ describe('media-browser alt text count and filter', () => {
     expect(page.el('altMissingLine').hidden).toBe(false);
     expect(page.el('altMissingText').textContent).toBe('12 ready photos in this view have no alt text.');
     expect(page.el('altMissingAction').textContent).toBe('Show only these');
-    expect(page.el('fExtra').hidden).toBe(true);
 
     page.el('altMissingAction').click();
     await page.flush();
     const filtered = page.listRequests.shift()!;
     expect(new URL(filtered.url, 'https://app.example').searchParams.get('alt')).toBe('missing');
     expect(page.el('fAlt').value).toBe('missing');
-    expect(page.el('fExtra').hidden).toBe(false);
-    expect(page.el('fMore').getAttribute('aria-expanded')).toBe('true');
+    expect(page.selectMenus.syncs).toContain('fAlt=missing');
     filtered.resolve({ items: [item('a')], total: 1, altMissing: 12 });
     await page.flush();
     expect(page.el('altMissingText').textContent).toBe('Showing photos without alt text.');
@@ -2874,7 +2943,7 @@ describe('media-browser URL state', () => {
     expect(params.get('folder')).toBe('Trips/North');
     expect(params.get('alt')).toBe('missing');
     expect(page.el('fAlt').value).toBe('missing');
-    expect(page.el('fExtra').hidden).toBe(false);
+    expect(page.selectMenus.syncs).toContain('fAlt=missing');
     first.resolve({ items: [], total: 0, altMissing: 0 });
     await page.flush();
     expect(page.el('folderTree').querySelectorAll('.is-current').map((button) => button.textContent)).toEqual(['North']);
@@ -3595,5 +3664,53 @@ describe('media viewer markup and stylesheet (#570)', () => {
   it('drops the panel\'s storage-key style and keeps the global one the AI dialog uses', () => {
     expect(css).not.toContain('.media-detail .media-key');
     expect(css).toMatch(/^\.media-key \{/m);
+  });
+});
+
+describe('media library layout, dropdowns, close icon, impact copy and collapsible versions', () => {
+  it('places Upload photos and Generate details with AI (no ellipsis) in the page header actions', () => {
+    expect(markup).toMatch(/<header class="cms-page-meta">[\s\S]*?<div class="cms-page-actions">[\s\S]*?id="uploadOpen"[\s\S]*?id="aiAll"[\s\S]*?<\/div>[\s\S]*?<\/header>/);
+    expect(markup).toContain('<button type="button" id="aiAll" class="btn-secondary">Generate details with AI</button>');
+    expect(markup).not.toContain('Generate details with AI…');
+  });
+
+  it('removes More filters, places compact Alt text right of Status, keeps Subfolders, and enhances all dropdowns', async () => {
+    expect(markup).not.toContain('id="fMore"');
+    expect(markup).not.toContain('id="fExtra"');
+    expect(markup).toMatch(/id="fStatus"[\s\S]*?class="filter-field filter-field--menu filter-field--compact"[\s\S]*?id="fAlt"[\s\S]*?id="fRecursive"/);
+
+    const page = loadPage({ folders: ['Trips'] });
+    await showLibrary(page, [item('a')]);
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder', 'fStatus:', 'fAlt:', 'moveTarget:']);
+    expect(page.selectMenus.syncs).toContain('moveTarget=');
+
+    tiles(page)[0]!.click();
+    await page.flush();
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder', 'fStatus:', 'fAlt:', 'moveTarget:', 'dFolder:']);
+
+    page.el('fStatus').value = 'failed';
+    page.el('fAlt').value = 'missing';
+    page.el('emptyShowAll').click();
+    expect(page.selectMenus.syncs).toContain('fStatus=');
+    expect(page.selectMenus.syncs).toContain('fAlt=');
+  });
+
+  it('uses a closing X icon in photo details, omits the gallery scope prose, and collapses Versions by default', async () => {
+    const page = loadPage();
+    await showLibrary(page, [item('a')]);
+    tiles(page)[0]!.click();
+    await page.flush();
+
+    const closeBtn = page.el('detailBack');
+    expect(closeBtn.textContent).toBe('');
+    expect(closeBtn.getAttribute('aria-label')).toBe(ui.en['editor.chrome.mediaViewerClose']);
+    expect(closeBtn.querySelectorAll('svg')).toHaveLength(1);
+    expect(page.el('dImpact').textContent).not.toContain(ui.en['editor.chrome.mediaImpactScope']);
+
+    const details = page.el('dVersionsDetails');
+    expect(details.tagName).toBe('details');
+    expect(details.open).toBe(false);
+    expect(details.children.map((child) => child.id)).toEqual(['dVersionsLabel', 'dVersions']);
+    expect(page.el('dVersionsLabel').tagName).toBe('summary');
   });
 });

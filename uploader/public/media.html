@@ -10,25 +10,13 @@
     <header class="cms-page-meta">
       <h1>Media</h1>
       <p id="mediaIntro" class="lede"></p>
+      <div class="cms-page-actions">
+        <button type="button" id="uploadOpen" class="media-upload-open">Upload photos</button>
+        <button type="button" id="aiAll" class="btn-secondary">Generate details with AI</button>
+      </div>
     </header>
 
     <main>
-      <section class="card media-upload">
-        <details id="dropZone" class="media-upload__disclosure help-details">
-          <summary id="mediaUploadLabel"></summary>
-          <div class="drop-zone">
-          <p><strong>Drop photos here</strong> to upload them into the selected folder.</p>
-          <!-- Drag-and-drop is an enhancement; the visible file input is the
-               real control, so the feature is keyboard-operable. -->
-          <label class="drop-zone__pick">
-            <span>Or choose files</span>
-            <input id="fileInput" type="file" accept="image/*" multiple />
-          </label>
-          </div>
-        </details>
-        <div id="uploadQueue" class="upload-queue" hidden></div>
-      </section>
-
       <section class="card media-layout">
         <aside class="media-sidebar">
           <details id="mediaFolders" class="media-folders help-details" open>
@@ -49,41 +37,36 @@
               <span>Search</span>
               <input id="fSearch" type="search" placeholder="Key, title, alt or caption" autocomplete="off" />
             </label>
-            <label class="filter-field">
-              <span>Status</span>
-              <select id="fStatus">
+            <div class="filter-field filter-field--menu">
+              <select id="fStatus" aria-label="Status">
                 <option value="">All</option>
                 <option value="ready">Ready</option>
                 <option value="processing">Processing</option>
                 <option value="failed">Failed</option>
                 <option value="missing">Missing</option>
               </select>
-            </label>
-            <button type="button" id="fMore" class="btn-link filter-reset" aria-expanded="false" aria-controls="fExtra">More filters</button>
-            <button type="button" id="aiAll" class="btn-secondary media-ai-open">Generate details with AI…</button>
-            <button type="button" id="detailJump" class="btn-secondary" hidden></button>
-            <div class="posts-filters-extra" id="fExtra" hidden>
-              <label class="filter-field filter-field--check">
-                <span>Subfolders</span>
-                <input id="fRecursive" type="checkbox" checked />
-              </label>
-              <label class="filter-field">
-                <span>Alt text</span>
-                <select id="fAlt">
-                  <option value="">Any</option>
-                  <option value="missing">Missing</option>
-                </select>
-              </label>
-              <button id="rescan" type="button" class="btn-secondary">Rescan disk</button>
             </div>
+            <div class="filter-field filter-field--menu filter-field--compact">
+              <select id="fAlt" aria-label="Alt text">
+                <option value="">Any</option>
+                <option value="missing">Missing</option>
+              </select>
+            </div>
+            <label class="filter-field filter-field--check">
+              <span>Subfolders</span>
+              <input id="fRecursive" type="checkbox" checked />
+            </label>
+            <button id="rescan" type="button" class="btn-secondary">Rescan disk</button>
+            <button type="button" id="detailJump" class="btn-secondary" hidden></button>
           </div>
+
+          <div id="uploadQueue" class="upload-queue" hidden></div>
 
           <div class="bulk-bar" id="bulkTools" hidden>
             <span id="selCount" aria-live="polite"></span>
-            <label class="filter-field">
-              <span>Move to</span>
-              <select id="moveTarget"></select>
-            </label>
+            <div class="filter-field filter-field--menu">
+              <select id="moveTarget" aria-label="Move to"></select>
+            </div>
             <button id="moveSelected" type="button" class="btn-secondary">Move</button>
             <button id="retrySelected" type="button" class="btn-secondary">Retry encoding</button>
             <button id="aiSelected" type="button" class="btn-secondary">Generate details with AI</button>
@@ -116,6 +99,30 @@
         <aside id="detail" class="media-detail" tabindex="-1" hidden></aside>
       </section>
       <p id="out" class="page-status" role="status"></p>
+
+      <!-- Upload photos (media-browser.js): native modal dialog so the library
+           starts at the top of the page while keeping drag-and-drop and the
+           visible file input keyboard-accessible. -->
+      <dialog id="uploadDialog" class="admin-modal media-upload-dialog" closedby="any" aria-labelledby="uploadTitle">
+        <div class="admin-modal__head">
+          <h2 id="uploadTitle" class="card-heading">Upload photos</h2>
+        </div>
+        <div class="media-upload-dialog__folder">
+          <select id="uploadFolder" aria-label="Folder"></select>
+        </div>
+        <div id="dropZone" class="drop-zone">
+          <p><strong>Drop photos here</strong> to upload them into the selected folder.</p>
+          <!-- Drag-and-drop is an enhancement; the visible file input is the
+               real control, so the feature is keyboard-operable. -->
+          <label class="drop-zone__pick">
+            <span>Or choose files</span>
+            <input id="fileInput" type="file" accept="image/*" multiple autofocus />
+          </label>
+        </div>
+        <div class="admin-modal__foot">
+          <button type="button" id="uploadClose" class="btn-secondary">Close</button>
+        </div>
+      </dialog>
 
       <!-- Bulk AI details (media-ai.js + media-browser.js). The run saves as it
            goes, so the scope, the fields and the overwrite choice are all stated
@@ -178,6 +185,7 @@
     <script src="/admin/editor-image-copy.js"></script>
     <script src="/admin/auth.js"></script>
     <script src="/admin/admin-ui.js"></script>
+    <script src="/admin/admin-select.js"></script>
     <script src="/admin/admin-confirm.js"></script>
     <script src="/admin/llm.js"></script>
     <script src="/admin/alt-suggest.js"></script>

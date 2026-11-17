@@ -163,6 +163,7 @@
     'M10 5Q11.5 11.5 18 13Q11.5 14.5 10 21Q8.5 14.5 2 13Q8.5 11.5 10 5Z',
     'M19 2l1 2 2 1-2 1-1 2-1-2-2-1 2-1z',
   ];
+  const CLOSE = ['M18 6 6 18', 'M6 6l12 12'];
   function icon(paths) {
     const svg = document.createElementNS(SVG_NS, 'svg');
     for (const name of Object.keys(ICON)) svg.setAttribute(name, ICON[name]);
@@ -175,12 +176,14 @@
   }
   /** The mark of an AI action; a fresh element on every call. */
   function ai() { return icon(AI); }
+  /** A close glyph; a fresh element on every call. */
+  function close() { return icon(CLOSE); }
 
   root.AdminFormat = { date, dateTime, time, count, region };
   root.AdminField = { invalid, valid };
   root.AdminFocus = { hold, firstInView };
   root.AdminFlash = { set: setFlash, take: takeFlash };
-  root.AdminIcons = { ai };
+  root.AdminIcons = { ai, close };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = { AdminFormat: root.AdminFormat, AdminField: root.AdminField, AdminFocus: root.AdminFocus, AdminFlash: root.AdminFlash, AdminIcons: root.AdminIcons };
   }
