@@ -132,6 +132,20 @@ describe('gallery source provenance and bounded edits', () => {
     }
   });
 
+  it.each([
+    ['equal run', `\`\`\`gallery\n${photo}\n\`\`\``, false, [photo]],
+    ['longer run', `\`\`\`gallery\n${photo}\n\`\`\`\`\`\``, false, [photo]],
+    ['shorter run', `\`\`\`\`gallery\n${photo}\n\`\`\``, true, [photo, '```']],
+    ['other character', `\`\`\`gallery\n${photo}\n~~~`, true, [photo, '~~~']],
+    ['trailing blanks', `~~~gallery\n${photo}\n~~~ \t `, false, [photo]],
+    ['quoted', `> ~~~gallery\n> ${photo}\n> ~~~`, false, [photo]],
+    ['shorter line inside a longer opener', `\`\`\`\`gallery\n\`\`\`\n${photo}\n\`\`\`\``, false, ['```', photo]],
+  ])('detects closure of a fence: %s', async (_name, body, unterminated, lines) => {
+    const block = (await analyzeGallerySource(body)).blocks[0]!;
+    expect(block.unterminated).toBe(unterminated);
+    expect(block.lines.map((line) => line.text)).toEqual(lines);
+  });
+
   it('rejects overlapping edits before constructing a changed document', () => {
     expect(() => applyGalleryEdits('unchanged', [{ start: 1, end: 5, text: 'x' }, { start: 3, end: 6, text: 'y' }])).toThrow('Invalid gallery source span');
   });
