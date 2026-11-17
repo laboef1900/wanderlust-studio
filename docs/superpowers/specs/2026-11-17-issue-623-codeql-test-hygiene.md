@@ -1,6 +1,6 @@
 # Issue 623: CodeQL test-suite and DOM-harness hygiene
 
-Status: design revision 1, awaiting independent review (see *Approval record*). Risk:
+Status: design revision 2, awaiting independent review (see *Approval record*). Risk:
 **normal**. Test files only; the one non-mechanical change is the markup parser of the DOM
 harness that 20 uploader suites build their assertions on.
 
@@ -41,20 +41,25 @@ then terminated script elements, each with a regular-expression `replace`, and t
 what is left with `/<[^>]+>|[^<]+/g`. The new parser makes one left-to-right pass over the
 original string with a cursor and never rewrites it:
 
-1. At `<!--` with a later `-->`: skip through `-->`. No node. The pending text run is kept.
+1. At `<!--` with a `-->` after those four characters: skip through that `-->`. No node.
+   The pending text run is kept.
 2. Otherwise take the next token with the same two alternatives as today (`<[^>]+>` or
    `[^<]+`, applied at the cursor). A `<` that starts neither is dropped, as the global
-   match drops it today, and ends the pending text run.
-3. A text token extends the pending text run. The run becomes one `#TEXT` node (decoded
-   once, as today) when the next node-producing or dropped token arrives and at the end.
+   match drops it today.
+3. A text token extends the pending text run. The run is flushed into one `#TEXT` node
+   (decoded once over the joined raw text, as today) before every other token and at the
+   end of input, with two exceptions that keep it open: a terminated comment (rule 1) and a
+   terminated script (rule 4). So end tags, `<!…>` tokens and a dropped `<` all end a run.
 4. A start-tag token whose tag name (the existing `^<([\w-]+)` capture) is `script`,
-   compared ASCII-case-insensitively, and that has an end tag later in the string: skip
-   through that end tag. No node; the pending text run is kept. The end tag is the first
-   `</script` (any ASCII case) followed by whitespace, `/` or `>`, through the next `>`.
+   compared ASCII-case-insensitively, and that is followed later in the string by
+   `</script>` in any ASCII case: skip through the first such end tag. No node; the pending
+   text run is kept. The end tag is exactly those nine characters, as today; `</script >`
+   and other spellings do not end the element.
 5. Everything else is unchanged: `<!…>` tokens are dropped, end tags pop to the matching
    open element, attributes, void elements and self-closing handling are as today. A
-   `script` start tag with no end tag stays an ordinary element whose content is parsed as
-   markup, as today; an unterminated `<!--` is dropped up to the next `>`, as today.
+   `script` start tag with no `</script>` after it stays an ordinary element whose content
+   is parsed as markup, as today; an unterminated `<!--` is dropped up to the next `>`, as
+   today.
 
 The comment delimiters and the script end tag are found with `startsWith`/`indexOf` and a
 case-folded slice comparison. After the change no regular expression in the harness names
@@ -78,10 +83,14 @@ run below proves that for the current suites):
 | # | Input shape | Today | New |
 |---|---|---|---|
 | 1 | `<!--` inside script content, `-->` after the script | comment removal eats the markup between them | script content is opaque; markup after the script is kept |
-| 2 | end tag `</script >`, `</SCRIPT x>` | not an end tag for the removal; the element and its content stay in the tree | ends the script element |
-| 3 | pieces around a removed comment or script that join into a tag (`<scr<script></script>ipt>`, `<!<!-- -->-- -->`) | the joined text is tokenized: a `SCRIPT` node or a new comment appears | never joined |
-| 4 | `<script-x>` | treated as a script start (`\b`) | ordinary element `SCRIPT-X` |
-| 5 | comment delimiters inside a tag token (`<a title="<!-- x -->">`) | removed before tokenizing | part of that token |
+| 2 | pieces around a removed comment or script that join into a tag (`<scr<script></script>ipt>`, `<!<!-- -->-- -->`) | the joined text is tokenized: a `SCRIPT` node or a new comment appears | never joined |
+| 3 | `<script-x>` | treated as a script start (`\b`) | ordinary element `SCRIPT-X` |
+| 4 | comment delimiters inside a tag token (`<a title="<!-- x -->">`) | removed before tokenizing | part of that token |
+| 5 | a terminated script inside a tag token (`<a title="<script>x</script>">t</a>`) | removed before tokenizing | part of that token and the text after it |
+
+Row 2 is the defect alerts 11 and 12 describe. Rows 3, 4 and 5 keep markup today's parser
+removes. Outside these five rows, which script elements are skipped is exactly today's
+set: same start tag, same end tag.
 
 Considered and rejected: keeping parsed `<script>` elements in the tree, as a browser's
 `innerHTML` does. It would make the `script` half of three existing injection assertions
@@ -89,7 +98,9 @@ Considered and rejected: keeping parsed `<script>` elements in the tree, as a br
 `querySelector('script')` after hostile input) effective, which today it is not for markup
 assigned through `innerHTML`, but it changes `textContent`, `children` and serialization
 for every suite that parses a full page. That is a behavior change beyond this epic; it is
-recorded as an observation for the owner, not implemented.
+recorded as an observation for the owner, not implemented. For the same reason the end tag
+is not widened to the forms a browser accepts (`</script >`, `</script/>`): today such an
+element stays in the tree where those assertions can see it, and it still does.
 
 ### D2. #610 alerts 7 and 9: Desk page scripts from the harness
 
@@ -98,7 +109,10 @@ parse `public/index.html` with `editorDocument` and then re-scan the same string
 script-matching pattern. They iterate `dom.scripts` instead, keeping the loop body:
 skip `/admin/editor-image-copy.js`, run the file behind `src` or the inline `text`.
 `public/index.html` has only `<script src="…">` and one inline `<script>`, no comments, so
-the list equals today's matches (checked in the differential run).
+the list equals today's matches (checked in the differential run). `dom.scripts` lists
+every script element, where today's pattern lists only bare and `src`-only tags: a future
+`type="module"` or `defer` script in that page would be run by these loops and fail
+loudly instead of being skipped silently.
 
 ### D3. #610 alert 6: Astro client script slice
 
@@ -119,9 +133,9 @@ like the literal evaluated in the context today.
 
 `uploader/test/publish-gate.test.ts`, the oracle: decode `&#x22;` before `&#x26;`. Today's
 order turns the serializer's `&#x26;#x22;` (a literal `&#x22;` in a URL) into `"`. The
-oracle gets stricter, not looser. One table row with such a URL is added if the gate and
-the corrected oracle agree on it and it fails under the old order; otherwise the worker
-reports why and adds none.
+oracle gets stricter, not looser. One table row pins it: the body
+`<img src="${OLD}/a&amp;#x22;.jpg">` with expected ``[`${OLD}/a&#x22;.jpg`]``, on which the
+gate and the corrected oracle agree and the old order answers `a".jpg`.
 
 ### D6. #616 alert 19: count literal occurrences
 
@@ -130,24 +144,26 @@ reports why and adds none.
 URL. The expected count stays 6. The unescaped `.` no longer matches any character, so the
 assertion is stricter. Line 58 (a pattern built from a label, not flagged) is unchanged.
 
-### D7. #617 alerts 20 to 23: compare parsed hosts, not URL prefixes
+### D7. #617 alerts 20 to 23: no URL-prefix checks
 
 - `site/src/lib/body-images.test.ts`: the linked-image branch keys on the row's
   `parent === 'a'`. Exactly the two rows containing the link have that parent.
 - `uploader/test/admin-actions-dom.test.ts` line 3252: the mixed-content fixture answers
   for host `lan.example` by parsing the URL (no throw on an unparsable value) and comparing
-  `hostname`.
-- Lines 4368 and 4423: "the page did not contact the provider" compares the parsed
-  `hostname` of each request with `api.anthropic.com` / `api.openai.com`. Same-origin
-  requests are relative URLs and must not throw. Any scheme or port on the provider host
-  still fails the assertion; a different host that merely starts with the same characters
-  no longer counts as the provider.
+  `hostname`. It is a fixture, not an assertion; it is called only with the three URLs the
+  test types and answers them as today.
+- Lines 4368 and 4423: "the page did not contact the provider" becomes "the page made no
+  off-origin request", using the rule the suite's own `fetcher` already applies
+  (`!url.startsWith('/')`): the list of requested URLs that do not start with `/` must be
+  empty. Every URL the old prefix check counted is in that list, so the assertion only gets
+  stricter; it has no host literal and parses nothing.
 
 ## Preservation invariants
 
 1. No file outside the nine test files, one new harness suite and the docs changes.
-2. Every existing assertion stays, with the same expected value. No test is skipped,
-   deleted or loosened; D5, D6 and D7 only narrow what passes.
+2. Every existing assertion stays. No test is skipped, deleted or loosened: D3, D4 and the
+   `body-images` and fixture parts of D7 are equivalent on every current input; D5, D6 and
+   the two provider assertions of D7 only narrow what passes.
 3. For every string the current suites pass to `parseMarkup` (page loads and `innerHTML`
    assignments), the resulting tree is identical to today's: same nodes, order, attributes
    and text runs.
@@ -158,29 +174,42 @@ assertion is stricter. Line 58 (a pattern built from a label, not flagged) is un
 ## Failure handling
 
 D1 has no new failure path: malformed markup degrades as today (rules 2 and 5). D3 throws
-a named error instead of a `TypeError`. D7's URL parsing must not throw on relative or
-partial values. The rest are pure expression replacements.
+a named error instead of a `TypeError`. D7's fixture must not throw on an unparsable value.
+The rest are pure expression replacements.
 
 ## Tests
 
 - New `uploader/test/editor-dom-harness.test.ts`, asserting trees through the public
   harness surface (`querySelector`, `textContent`, `childNodes`, `scripts`), not parser
-  internals: comments and scripts leave no node and do not split a text run; script tags in
-  any ASCII case, with attributes, and with `</script >`; `scripts` order, `src` and raw
-  `text`; unterminated comment and unterminated script keep today's result (the markup
-  after an unclosed `<script>` stays visible); the five differences above, including the
-  two nested inputs from the alerts producing no `SCRIPT` node; the `innerHTML` setter path.
+  internals:
+  - comments and terminated scripts leave no node and do not split a text run, and the
+    joined run is decoded once (`&am<!-- -->p;` is `&`);
+  - end tags, `<!x>` tokens and a dropped `<` do split it (`a<!x>b` is two text nodes);
+  - script tags in any ASCII case and with attributes are skipped; `</script >` does not
+    end the element, which stays in the tree with its content;
+  - `scripts` order, `src` and raw `text`;
+  - `<!-->a-->b` resolves as today; an unterminated comment and an unterminated script keep
+    today's result (markup after an unclosed `<script>` stays visible);
+  - the five differences above, including the two nested inputs from the alerts producing
+    no `SCRIPT` node;
+  - the `innerHTML` setter path.
 - D2 to D7 are covered by the suites they change; the full uploader and site runs are the
   regression check for invariant 2.
 
 Evidence produced during development and reported, not committed:
 
 - Differential run: the old `parseMarkup` kept beside the new one, both run on every call
-  of the complete uploader unit run, serialized trees compared. Report calls compared and
-  mismatches (expected 0); any mismatch is investigated before completion.
+  of the complete uploader unit run, trees compared structurally: tag name, attributes in
+  order, and every `#TEXT` node separately (not `outerHTML`, which joins adjacent text
+  nodes and would hide a split). Report calls compared, distinct inputs and mismatches.
+  A non-zero mismatch count stops the task and returns the design to review.
 - `dom.scripts` for `public/index.html` equals the old pattern's matches (count, order,
   `src`, text).
 - D5: the added row fails with the old order and passes with the new.
+
+The pull request body carries `Closes` for the six children, the repository convention,
+so they close on merge, and `Refs #623`: the parent's remaining condition (no open alert)
+is met only when `dev` is rescanned after merge, and the owner closes it then.
 
 ## Verification
 
@@ -221,5 +250,31 @@ this change touches none of the listed high-risk paths. The owner's brief for #6
 implementation; that approval is recorded below. Human review before merge is unaffected.
 
 ## Approval record
+
+### Revision 1 (commit `dee27b48d57dc9f57aaf522cfb0512430830bb78`): changes required
+
+Reviewer: independent Orca worker, OMP, `anthropic/claude-opus-5-5`, launched at effort
+`high` (Orca dispatch `ctx_26eff06e4116`, effective launch settings confirmed with
+`worker-show`; the reviewer's harness does not display the level to it). The reviewer did
+not author the design.
+
+The reviewer checked every claim against the source, implemented D1 next to the old parser
+in a scratch copy and ran both on every `parseMarkup` call of the uploader unit project
+(6461 calls, 951 page loads and 5510 `innerHTML` assignments, 38 distinct inputs, 0 tree
+mismatches), confirmed that `dom.scripts` for `public/index.html` equals the old matches
+(12 scripts), and read the CodeQL query sources for the six rules.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| F1: comparing `hostname` at lines 4368 and 4423 lets a lookalike host (`api.anthropic.com.evil.example`) pass where it fails today | blocking | Accepted. D7 now asserts that no off-origin request was made, a superset of the old check. Invariant 2 reworded. |
+| F2: a terminated script inside a tag token is a sixth difference | non-blocking | Accepted. Added to the table (row 5) and to the harness suite. |
+| F3: the flush rule and the `-->` search start were underspecified | non-blocking | Accepted. Rules 1 and 3 reworded; tests added. |
+| F4: the differential must compare structure, and a mismatch must return to review | non-blocking | Accepted. Evidence section reworded. |
+| F5: accepting `</script >` and similar end tags would hide script elements the harness shows today | non-blocking | Accepted by removing the cause: rule 4 keeps today's exact end tag, so the set of skipped scripts does not grow. The former difference 2 is gone. |
+| F6: the D5 row need not be conditional | non-blocking | Accepted. The row the reviewer verified is mandatory. |
+| F7: the pull request should close the children and the parent | non-blocking | Accepted for the six children. The parent gets `Refs`: its last condition is met only after `dev` is rescanned. |
+| F8: `dom.scripts` lists every script element | non-blocking | Accepted. One sentence in D2. |
+
+### Revision 2
 
 Pending.
