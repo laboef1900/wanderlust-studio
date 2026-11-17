@@ -361,9 +361,9 @@ async function deskPage(options: {
   };
   context.window = context;
   vm.createContext(context);
-  for (const script of html.matchAll(/<script(?:\s+src="([^"]+)")?>([\s\S]*?)<\/script>/g)) {
-    if (script[1] === '/admin/editor-image-copy.js') continue;
-    vm.runInContext(script[1] ? readFileSync('public/' + script[1].slice('/admin/'.length), 'utf8') : script[2]!, context);
+  for (const script of dom.scripts) {
+    if (script.src === '/admin/editor-image-copy.js') continue;
+    vm.runInContext(script.src ? readFileSync('public/' + script.src.slice('/admin/'.length), 'utf8') : script.text, context);
   }
   await nextTurn();
   const get = (selector: string) => {
