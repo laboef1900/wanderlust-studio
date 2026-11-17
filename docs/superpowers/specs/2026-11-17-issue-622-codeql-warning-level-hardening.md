@@ -1,6 +1,7 @@
 # Issue 622: CodeQL production warning-level hardening
 
-Status: design revision 2, awaiting independent AI review under the scoped exception below
+Status: design revision 3. Revision 2 was approved 2026-11-17 by independent AI review; this
+revision adds that reviewer's six non-blocking recommendations, under the scoped exception below
 (see *Approval record*). Risk: **high** (the login, setup and password-change routes move
 into a child plugin scope, the backup download route, the WXR importer and its image scan,
 a new runtime dependency).
@@ -102,15 +103,25 @@ const dest = /[\s<>]/.test(href)
 
 The image scan must read the new form back. `IMAGE_RE` (same file, used by
 `markdownImages`) only accepts `<[^<>\n]*>` as an angle destination, so an escaped `\<` or
-`\>` is not an image to it today, while CommonMark renderers show one. Its angle branch
-becomes `<((?:\\.|[^<>\\\n])*)>`; the existing unescape step already handles the result.
+`\>` is not an image to it today, while CommonMark renderers show one. Two changes to the
+destination part of the pattern, nothing else:
+
+- the angle branch becomes `<((?:\\.|[^<>\\\n])*)>` (backslash escapes accepted; the two
+  alternatives are disjoint, so matching stays linear);
+- the bare branch is prefixed with `(?!<)`: CommonMark does not allow a bare destination to
+  start with `<`, and without this an angle destination the first branch rejects would be
+  read by the second as a URL with literal brackets.
+
+The existing unescape step already handles the result.
 
 - For every `href` without a backslash, `<` or `>` the produced Markdown is byte-identical.
 - `markdownImages` returns the original `href` for every output of `inlineImage`, and for
   Turndown's own escaped angle destinations, which it misses today.
-- One reading changes for existing text: `![a](<https://x/a b\>)`, an angle destination whose
-  closing bracket is escaped. Today it is read as the URL `https://x/a b\`; afterwards it is
-  not an image, which is what CommonMark says. Neither the importer nor Turndown produces it.
+- Every reading of existing text that changes moves to CommonMark's reading. The classes:
+  an escaped `<` or `>` inside an angle destination is now part of the URL; an angle
+  destination whose closing bracket is escaped is no longer an image; a bare destination
+  starting with `<` is no longer an image. Neither the importer nor Turndown produces the
+  last two; they can only occur in hand-written bodies.
 - Callers whose input set changes accordingly: the WXR re-host scan and its pre-flight
   count, the export's body-image pass, the alt audit and media-sync's alt backfill.
 
@@ -273,8 +284,12 @@ app.register(async (scope) => {
   root error handler, with `Retry-After`. (While storage is read-only that handler answers
   every error, this one included, with its read-only reply. Unchanged behavior.)
 - Fastify's implicit `HEAD` twin is limited too, with its own bucket: at most 30 `GET` plus
-  30 `HEAD` file opens per address per minute.
-- The scope holds this one route.
+  30 `HEAD` file opens per address per minute. The separate buckets depend on
+  `preHandler: requireAdmin` staying a function: written as an array, Fastify's shallow copy
+  of the options for the twin would make both limiters share it.
+- The scope carries the same kind of guard as the login scope:
+  `scope.addHook('onRoute', requireRouteLimiter((route) => typeof route.config?.rateLimit === 'object', 'config.rateLimit'))`,
+  so a route without its own limit cannot be declared in it.
 
 **3. Login, setup and password change** (`auth-routes.ts`). `POST /setup`, `POST /login` and
 `POST /users/me/password` move, options and handlers unchanged and together with the setup
@@ -284,9 +299,7 @@ which declares them in one child scope:
 ```ts
 app.register(async (limited) => {
   await limited.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
-  limited.addHook('onRoute', (route) => {
-    if (![route.preHandler].flat().includes(limitAuth)) throw new Error(`${route.method} ${route.url} must be rate-limited by limitAuth`);
-  });
+  limited.addHook('onRoute', requireRouteLimiter((route) => [route.preHandler].flat().includes(limitAuth), 'limitAuth'));
   limited.post('/setup', { preHandler: limitAuth }, …);
   limited.post('/login', { preHandler: limitAuth }, …);
   limited.post('/users/me/password', { preHandler: [limitAuth, requireAuth] }, …);
@@ -298,7 +311,10 @@ app.register(async (limited) => {
   analysis cannot model the in-house limiters: the registration is what makes it credit
   three routes that are limited. A code comment says exactly that.
 - The `onRoute` guard makes the credit true by construction: a route can only be declared in
-  this scope if it carries `limitAuth`; anything else fails the boot.
+  this scope if it carries `limitAuth`; anything else fails the boot. `requireRouteLimiter`
+  is a small hook factory exported from `rate-limit.ts`: it takes a predicate over the route
+  options and a label, and returns an `onRoute` hook that throws
+  `<method> <url> must be rate-limited (<label>)` when the predicate fails.
 - The other routes of the file (`/login` page, `/auth/*`, `/logout`, `/users*`) stay in
   `registerAuthRoutes` on the root instance, before the block, and are not credited.
 
@@ -312,6 +328,8 @@ content-type parsers. Route paths, guards and handlers are otherwise identical.
 the plugin and still credited by the analysis. `buildServer` adds, before any route, an
 `onRoute` hook that throws when a route declares `config.rateLimit` on an instance without
 the plugin's `rateLimit` decorator. A declared limit that is not enforced fails the boot.
+The hook is a `function`, not an arrow function (it reads `this.hasDecorator`), and treats
+`config.rateLimit: false`, the plugin's own "no limit" value, as not declaring one.
 
 ## Preservation invariants
 
@@ -353,8 +371,9 @@ Added to the existing suites, asserting results rather than wiring:
   backslash, `\)`, a trailing backslash, a leading `<` without whitespace, and (with
   whitespace) `<`, `>` and a backslash; each asserts the produced Markdown and that
   `markdownImages` returns the original URL. `markdownImages` directly: a Turndown-style
-  escaped angle destination is found, and the escaped-closing-bracket text above is not an
-  image. Existing cases stay green unedited.
+  escaped angle destination is found (with and without whitespace); an angle destination
+  with an escaped closing bracket and a bare destination starting with `<` are not images.
+  Existing cases stay green unedited.
 - D2: for each call path that a test can reach (MDX backup failure on publish, bulk action
   failure, the error handler), a value containing format directives is logged verbatim and
   the error is still printed; the error-handler case uses a failing request for a URL with
@@ -376,10 +395,15 @@ Added to the existing suites, asserting results rather than wiring:
   `x-ratelimit-*`; `HEAD` is limited with its own bucket; anonymous and non-admin requests
   never consume the budget; the root `onSend` headers are still present; `GET /backups` and
   `POST /backups` are unaffected; an unrelated authenticated route is not limited. Boot
-  guards: a route without `limitAuth` declared in the login scope, and a root route
-  declaring `config.rateLimit`, each fail the boot. The budgets are imported from
-  `rate-limit.ts`, not repeated. The existing login, setup and password-change tests are the
-  preservation proof for the scope move and are not edited.
+  guards: `requireRouteLimiter` on a bare instance accepts a function and an array
+  `preHandler` carrying the limiter and fails the boot for a route without it, for a nested
+  child scope's route and for a route declared by a non-encapsulated plugin; a root route
+  declaring `config.rateLimit` fails the boot. The budgets are imported from `rate-limit.ts`,
+  not repeated. The existing login, setup and password-change tests are not edited; one new
+  case pins what the three moved routes inherit from the root: with storage read-only each
+  answers `503 storage_read_only` without the login limiter being consulted, and with
+  storage writable each response carries `X-Frame-Options: DENY` and
+  `Referrer-Policy: no-referrer`.
 
 ## Verification
 
@@ -405,7 +429,7 @@ Added to the existing suites, asserting results rather than wiring:
 | T2 | #620 | `uploader/src/posts-routes.ts`, `media-routes.ts`, `backup.ts`, `build.ts`, `server.ts` (error handler line), their tests | approval |
 | T3 | #613 | `uploader/public/editor.html`, `settings.html`, DOM tests | approval |
 | T4 | #619 | `uploader/package.json`, lockfile, `src/rate-limit.ts`, `server.ts` (root `onRoute` guard, the block of rate-limited scopes), `gpx-routes.ts`, `backup-import-routes.ts`, `auth-routes.ts` (moving the three routes only), tests, `docs/third-party-inventory.json` | approval, T2 integrated |
-| T5 | all | integration, `SECURITY.md` (rate limiting, the GPX residual, why the rate-limited scopes are registered last), `ARCHITECTURE.md`, `docs/claude/project-status.md`, this spec; pull request body with `Closes #609`, `#613`, `#619`, `#620`, `#622` | T1 to T4 |
+| T5 | all | integration, `SECURITY.md` (rate limiting, the GPX residual, why the rate-limited scopes are registered last), `CLAUDE.md` (the block of rate-limited scopes joins the high-risk list), `ARCHITECTURE.md`, `docs/claude/project-status.md`, this spec; pull request body with `Closes #609`, `#613`, `#619`, `#620`, `#622` | T1 to T4 |
 
 T1, T2 and T3 are independent and run in parallel in separate worktrees. T4 shares
 `server.ts` and `test/server.test.ts` with T2, so it starts from a revision that contains
@@ -458,3 +482,29 @@ parsers.
 | N8: corrections (no peer dependency, only `ip-address` is new, one store per limiter, the reason for rejecting per-route session checks) | non-blocking | Accepted; D4 corrected. |
 | N9: the plugin marks a request as limited once per instance | non-blocking | Accepted; noted in the `registerGpxRoutes` doc comment. |
 | N10: the pull request must close the children | non-blocking | Accepted; T5 lists the `Closes` lines. |
+
+### Revision 2 (commit `8467a47f1870f5055ace60051befa9ed3b0fc995`): approved
+
+Same reviewer, follow-up session (`anthropic/claude-opus-5-5`, launched at effort `high`,
+Orca dispatch `ctx_7e6136c3349e`; its harness showed a reasoning-effort value of 15 and no
+level name), 2026-11-17. Verdict: **approved**, no blocking finding. B1 and B2 resolved, N1
+to N10 handled as recorded above.
+
+The reviewer re-queried scans 2 and 3, diffed the scan-3 commit against the base, booted
+the moved scopes and both guards on Fastify 5.12.8, and ran the new `inlineImage` and
+`IMAGE_RE` over 111,105 generated hrefs with no round-trip or CommonMark mismatch and
+linear matching time.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| R1: the backup scope was not limited by construction | non-blocking | Accepted. Guard added to the scope. |
+| R2: more scan readings change than the one stated; some to a reading that is neither the old one nor CommonMark's | non-blocking | Accepted. `(?!<)` on the bare branch (the reviewer's run over 274,512 inputs: every changed reading agrees with CommonMark); D1 lists the classes; one test per class. |
+| R3: "the block stays last" rests on memory | non-blocking | Accepted in part. `CLAUDE.md`'s high-risk list names the block. The proposed source-order test is not added: it would assert on source text, not on behavior; the limit stays a documented one. |
+| R4: the login-scope guard could not be tested as designed | non-blocking | Accepted. `requireRouteLimiter` factory, tested on a bare instance. |
+| R5: nothing pins what the moved routes inherit from the root | non-blocking | Accepted. One new case (read-only refusal, frame and referrer headers). |
+| R6: three implementation details | non-blocking | Accepted. Stated in D4. |
+
+### Revision 3 (this revision)
+
+Revision 2 plus R1 to R6 as dispositioned above; no other change. Sent to the same reviewer
+for confirmation that the recommendations are taken up as proposed.
