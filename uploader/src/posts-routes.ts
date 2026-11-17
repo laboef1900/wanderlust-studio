@@ -181,6 +181,7 @@ export function registerPostsRoutes(ctx: ServerContext): void {
         return translationFailure(error, reply);
       },
     }, async (req, reply) => {
+      // Explicit although Fastify infers the same value; keeps CodeQL #614 closed. Must stay ahead of every send.
       reply.header('Content-Type', 'application/json; charset=utf-8');
       try {
         if (action === 'prepare') return reply.send(await prepareTranslation(req.body));
