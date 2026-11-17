@@ -160,7 +160,7 @@ if (!url || !HERO_PREVIEW_URL.test(url)) { /* existing "no hero" branch, unchang
 ```
 
 - Accepts absolute `http:`/`https:` URLs made of RFC 3986 characters plus non-ASCII. Rejects
-  every other scheme, relative references, whitespace, quotes, `<`, `>`, backslash and
+  every other scheme, relative references, whitespace, double quotes, `<`, `>`, backslash and
   control characters.
 - A rejected URL takes the existing branch for "no thumbnail": previews hidden, `src`
   removed. No new state, copy, element or style.
@@ -383,7 +383,7 @@ Added to the existing suites, asserting results rather than wiring:
 - D3 (DOM suites): hero preview shows for an `https:` and an `http:` hero, for a base with a
   port, an IPv6 literal host, an IDN host and a trailing-slash base; it is hidden with `src`
   removed from all three images for `javascript:`, `data:`, a relative path and a URL with a
-  space or quote, including when a previewing hero is replaced by a rejected one. Settings:
+  space or double quote, including when a previewing hero is replaced by a rejected one. Settings:
   both panes still show for a picked file; with `createObjectURL` stubbed to return a
   non-`blob:` value, both URLs are revoked, both panes and the result are hidden with `src`
   removed, and the message above is shown.
@@ -513,3 +513,25 @@ acceptance of R3 does not change it. Two editorial notes, both applied to this t
 a further round, as the reviewer stated: the backup-scope predicate also excludes `null`,
 and the sentence on changed scan readings names the one case that ends at "not an image"
 rather than at CommonMark's reading.
+
+### Integrated diff (head `35c935013b5392ca5a7db8bc644a45819dadab9b`): approved
+
+Independent review of `origin/dev...HEAD` by a fresh session (`anthropic/claude-opus-5-5`,
+launched at effort `high`, Orca dispatch `ctx_b8070c514472`; its harness showed a
+reasoning-effort value of 15 and no level name). `/review` could not be invoked from that
+session, so it ran OMP's bundled `reviewer` agent, the agent `/review` uses, on the complete
+diff and verified the findings itself: full suite (6048 tests) against its own disposable
+database, 15 mutation checks, a round-trip run over 20,000 generated hrefs, regeneration of
+the inventory (byte-identical), and a comparison of the moved handlers with `origin/dev`
+(identical apart from indentation and the receiver). Verdict: **approved**, no must-fix.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| S1: the two scope `onRoute` guards could be deleted without a test failing | should-fix | Accepted. Two cases pin them where they are installed. This also supersedes R4's premise that only the factory could be tested. |
+| S2: one edited test pinned the log call's argument list | should-fix | Accepted. It asserts the printed line; a single-publish case with a directive-bearing key is added. |
+| N1: nothing pinned `global: false` | nit | Accepted. One case. |
+| N2: three rewritten log sites had no test | nit | Not added. At those three sites the logged value cannot contain `%` (a temp-file name the application wrote, an internal attempt id, a storage key limited to `a-z 0-9 / _ -`), so no test can tell the old form from the new one; it would only pin the wording. |
+| N3: `SECURITY.md` overclaimed "log lines never…" | nit | Accepted. Reworded; the encode queue's line is named. |
+| N4: the /64 grouping relied on a plugin default | nit | Accepted. `ipv6Subnet: 64` is set explicitly. |
+| N5: "quotes" in D3 | nit | Accepted. "double quotes". |
+| N6: pull request wording and verification placeholder | nit | Accepted. |

@@ -739,10 +739,12 @@ logs the full error server-side (stdout, captured by Docker) and returns a **gen
 never reach the client. Intentional 4xx framework responses (body-size 413, malformed JSON 400)
 keep their sanitized messages. (`uploader/src/server.ts`)
 
-Log lines never use request- or storage-derived text as a format string (#620): the handler
-and the route-level `console.error` calls pass a constant format with the values as `%s`
-arguments. Before, a failing request for a URL with lowercase percent-encoding (`%c3%a4`)
-was logged with its error and stack swallowed by the `%c` directive.
+The error handler and the `console.error` calls in the post, media, backup and build code
+pass a constant format string with their values as `%s` arguments (#620), so request- or
+storage-derived text is never read as a format directive there. Before, a failing request
+for a URL with lowercase percent-encoding (`%c3%a4`) was logged with its error and stack
+swallowed by the `%c` directive. (The encode queue's log line still interpolates a storage
+key, which `assertSafeKey` limits to `a-z 0-9 / _ -`.)
 
 WXR scalar text reconstruction (#388) concatenates adjacent CDATA fragments without
 inventing separators; it preserves actual commas and the existing parser policy.
