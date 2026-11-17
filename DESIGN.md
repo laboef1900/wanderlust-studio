@@ -1295,7 +1295,10 @@ criterion (2.5.5 is AAA), so the accessibility commitment in `PRODUCT.md` is una
   author `display`.
 
 - A full-width 3rem masthead (brand on the left; descriptor and View site on the right)
-  sits above a 13rem sidebar and a single rounded white workspace. The sidebar holds
+  sits above an 11.7rem sidebar (`--cms-sidebar-w`, reduced 10% from 13rem) and a single
+  rounded white workspace whose `.cms-topbar` and `.cms-content` share one `--cms-content-max`
+  (`100rem`) centering measure — filling the workspace on 14-inch laptops and centering
+  consistently across pages on larger displays. The sidebar holds
   all page navigation (no journal header above it) and, at its foot, the account menu. Its
   trigger is a full-width `--radius-lg` button showing the 32px steel-blue (`--studio-accent`) avatar,
   single-line ellipsized username, role, and chevron (`44px` hit height). The panel opens
