@@ -569,6 +569,7 @@ describe('media client DOM safety', () => {
   });
 
   it('the page loads the split modules rather than inlining the logic', () => {
+    expect(page).toContain('<script src="/admin/admin-select.js"></script>');
     expect(page).toContain('<script src="/admin/media-api.js"></script>');
     expect(page).toContain('<script type="module" src="/admin/media-conditional.js"></script>');
     expect(page).toContain('<script type="module" src="/admin/media-browser.js"></script>');

@@ -23,6 +23,9 @@
   $('uploadTitle').textContent = copy.mediaUpload;
   $('uploadClose').textContent = copy.mediaViewerClose;
   $('detailJump').textContent = copy.mediaDetails;
+  var uploadFolderMenu = window.AdminSelect
+    ? window.AdminSelect.enhance($('uploadFolder'), { label: 'Folder' })
+    : null;
   function revealDetail() {
     $('detail').focus({ preventScroll: true });
     $('detail').scrollIntoView({ block: 'start' });
@@ -476,6 +479,7 @@
     var uploadDialog = $('uploadDialog');
     var uploadFolder = $('uploadFolder');
     fillFolderSelect(uploadFolder, state.folders, uploadDialog && uploadDialog.open ? uploadFolder.value : state.folder);
+    if (uploadFolderMenu) uploadFolderMenu.sync();
     $('pageInfo').textContent = state.total
       ? 'Page ' + state.page + ' of ' + Math.max(1, Math.ceil(state.total / state.pageSize))
       : '';
@@ -1606,6 +1610,7 @@
     var dialog = $('uploadDialog');
     if (!dialog || typeof dialog.showModal !== 'function') return;
     fillFolderSelect($('uploadFolder'), state.folders, state.folder);
+    if (uploadFolderMenu) uploadFolderMenu.sync();
     if (!dialog.open) dialog.showModal();
     $('fileInput').focus();
   }
@@ -1637,6 +1642,9 @@
     $('uploadOpen').addEventListener('click', openUploadDialog);
     $('uploadClose').addEventListener('click', function () { if (dialog) dialog.close(); });
     if (dialog) {
+      dialog.addEventListener('close', function () {
+        if (uploadFolderMenu) uploadFolderMenu.close();
+      });
       ['dragover', 'drop'].forEach(function (t) {
         dialog.addEventListener(t, function (ev) { ev.preventDefault(); });
       });

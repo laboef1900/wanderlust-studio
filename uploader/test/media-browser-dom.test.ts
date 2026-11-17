@@ -226,6 +226,7 @@ interface Page {
   /** Every item GET the page sent, with its query string. */
   itemReads: string[];
   described: string[];
+  selectMenus: { enhanced: string[]; syncs: string[]; closes: string[] };
   confirms: string[];
   confirmAnswer: { value: boolean };
   prompts: Prompt[];
@@ -320,6 +321,7 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
     });
     return promise;
   };
+  const selectMenus: { enhanced: string[]; syncs: string[]; closes: string[] } = { enhanced: [], syncs: [], closes: [] };
   const describePhoto = opts.describe ?? (async () => DETAILS);
   const ctx: Record<string, unknown> = {
     document: {
@@ -384,6 +386,16 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
       Object.fromEntries(Object.entries(strings).filter(([key]) => key.startsWith('editor.chrome.')).map(([key, value]) => [key.slice('editor.chrome.'.length), value])),
     ])),
     MediaConditional,
+    AdminSelect: {
+      enhance: (select: FakeNode, o?: { label?: string }) => {
+        selectMenus.enhanced.push(select.id + ':' + (o?.label ?? ''));
+        return {
+          sync: () => { selectMenus.syncs.push(select.id + '=' + select.value); },
+          close: () => { selectMenus.closes.push(select.id); },
+          trigger: select,
+        };
+      },
+    },
     EditorGalleryImageOrigin: 'https://img.example',
     AltSuggest: {
       loadConfig: async () => ({
@@ -413,7 +425,7 @@ function loadPage(opts: { describe?: Describe; isAdmin?: boolean; locale?: 'de' 
   vm.runInContext(impactSrc, ctx);
   vm.runInContext(browserSrc, ctx);
   const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await setImmediate(); };
-  return { el, activeElement: () => focusState.activeElement, win: ctx, timers, listRequests, uploadRequests, patches, deletions, rows, versions, itemReads, described, confirms, confirmAnswer, prompts, promptAnswer, flush,
+  return { el, activeElement: () => focusState.activeElement, win: ctx, timers, listRequests, uploadRequests, patches, deletions, rows, versions, itemReads, described, selectMenus, confirms, confirmAnswer, prompts, promptAnswer, flush,
     urlState: () => { const last = urlWrites.at(-1) ?? ''; return last.includes('?') ? last.slice(last.indexOf('?')) : ''; },
     focus: () => windowEvents.dispatch('focus'),
     lifecycle: (type, persisted) => windowEvents.dispatch(type, { persisted }),
@@ -576,15 +588,18 @@ describe('media-browser upload modal', () => {
 
     expect(page.el('uploadOpen').textContent).toBe(ui.en['editor.chrome.mediaUpload']);
     expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.selectMenus.enhanced).toEqual(['uploadFolder:Folder']);
 
     page.el('uploadOpen').click();
     expect(page.el('uploadDialog').open).toBe(true);
     expect(page.el('fileInput').focused).toBe(true);
     expect(page.el('uploadFolder').value).toBe('');
     expect(page.el('uploadFolder').children.map((option) => option.value)).toEqual(['', 'Trips/North', 'Trips/South']);
+    expect(page.selectMenus.syncs.at(-1)).toBe('uploadFolder=');
 
     page.el('uploadClose').click();
     expect(page.el('uploadDialog').open).toBe(false);
+    expect(page.selectMenus.closes).toEqual(['uploadFolder']);
 
     page.el('folderTree').querySelectorAll('.folder-btn')[1]!.dispatch('click');
     await page.flush();
@@ -594,6 +609,7 @@ describe('media-browser upload modal', () => {
     page.el('uploadOpen').click();
     expect(page.el('uploadDialog').open).toBe(true);
     expect(page.el('uploadFolder').value).toBe('Trips/North');
+    expect(page.selectMenus.syncs.at(-1)).toBe('uploadFolder=Trips/North');
 
     page.el('dropZone').dispatch('drop', { dataTransfer: { files: [{ name: 'fjord.jpg' }] } });
     expect(page.el('uploadDialog').open).toBe(false);
