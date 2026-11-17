@@ -1,6 +1,7 @@
 # Issue 621: CodeQL production error-level fixes
 
-Status: design revision 1, 2026-11-17. Awaiting independent AI design approval (see
+Status: design revision 2, 2026-11-17. Revision 1 was reviewed independently with changes
+required; this revision resolves them and awaits the reviewer's confirmation (see
 *Approval record*). Risk: **high** (path-traversal guards, backup download route, the
 gallery source parser).
 
@@ -49,10 +50,14 @@ or in a custom pattern, and the two ReDoS patterns are real worst-case exponenti
 export function backupFilePath(dir: string, name: string): string | null
 ```
 
-- `root = resolve(dir)`, `target = resolve(root, basename(name))`.
-- Returns null when `basename(name) !== name` (any separator) or when `target` does not start
-  with `root` plus one separator (`root` itself if it already ends with one). So `''`, `.`,
-  `..`, `a/b`, `/etc/passwd` and `../x` all yield null.
+- `root = resolve(dir)`, `target = resolve(root, basename(name))`,
+  `prefix = root.endsWith(sep) ? root : root + sep` (`resolve` leaves a trailing separator
+  only on the file-system root).
+- Returns null when `basename(name) !== name` (any separator), when `target === root`, or
+  when `target` does not start with `prefix`. So `''`, `.`, `..`, `a/b`, `/etc/passwd` and
+  `../x` all yield null for every directory, the file-system root included.
+- The check is lexical: symbolic links are not resolved. The doc comment says so and tells
+  callers to keep opening the result with `O_NOFOLLOW`.
 - It does not replace the filename patterns. The route keeps the three allow-list patterns
   first, then calls the helper and answers the same `400 invalid backup filename` on null,
   then opens the returned path with the unchanged `O_RDONLY | O_NOFOLLOW`, regular-file and
@@ -73,9 +78,13 @@ function keyLocation(storageDir: string, key: string): { dir: string; base: stri
 
 - Calls `assertSafeKey(key)` first (the existing chokepoint, unchanged, before any path is
   built).
-- `root = resolve(storageDir)`, `target = resolve(root, key)`; throws
+- `root = resolve(storageDir)`, `target = resolve(root, key)`, and the same
+  `prefix = root.endsWith(sep) ? root : root + sep` as D1; throws
   `unsafe storage key (resolves outside the storage directory)` unless `target` starts with
-  `root` plus one separator. The message never contains a path.
+  `prefix`. The message never contains a path. `target === root` cannot occur: `assertSafeKey`
+  has already rejected empty, `.`, `..` and trailing-slash keys.
+- Each `startsWith` comparison is written inline in the function that returns the path, not
+  behind a boolean or assert-style helper.
 - Returns `dir = dirname(target)` and `base = basename(target)`.
 
 Checking the key's own path instead of its directory keeps one guard with no special case:
@@ -155,19 +164,24 @@ everything after it are unchanged.
 
 Added to the existing suites, table-driven, asserting results rather than wiring:
 
-- D1: `backupFilePath` for accepted names (all three kinds), a relative and a
-  trailing-slash directory, and the hostile names above. Route: existing cases stay green;
-  add a `routes-…tar` download and a route-archive-shaped traversal attempt.
-- D2: `deleteMedia` and `listVariantFiles` with a non-normalized storage directory
-  (trailing slash, `.` segment) for a root-level and a nested key; existing hostile-key
-  cases stay green.
-- D3: both translation routes answer `application/json; charset=utf-8`, including for a
-  payload carrying markup, which comes back JSON-encoded.
-- D4: trailing-line splitting across LF, CRLF, lone CR, mixed, blank lines with blanks,
-  trailing blanks after the last break (no split) and no break at all; gallery openers at
-  top level, in nested quotes, in ordered and bullet lists, with tabs, plus near-misses.
-  The alert's own adversarial inputs (tens of thousands of repetitions) must return the
-  correct result well inside a generous wall-clock bound.
+- D1, in `uploader/test/backup.test.ts`: `backupFilePath` for accepted names (all three
+  kinds) with an absolute, a relative and a trailing-slash directory, and the hostile names
+  above against an ordinary directory and against `/`. Route: existing cases stay green and
+  are not widened; add a `routes-…tar` download.
+- D2: `deleteMedia` and `listVariantFiles` for a root-level key, the case a
+  directory-level prefix check would wrongly reject, once with a trailing-slash storage
+  directory; existing nested-key and hostile-key cases stay green.
+- D3: one assertion per translation route that a successful response is
+  `application/json; charset=utf-8`. This pins invariant 1; CodeQL on the pull request is
+  the check that the finding is gone.
+- D4, through the editor's observable output rather than an unedited round trip (which
+  hides a wrong split): the source block text for a block followed by `\r\n \t\r\n` and by a
+  lone `\r`; the Markdown after an edit next to such a block; the `onEditGallery` offset for
+  galleries at top level, in nested quotes and in ordered and bullet lists, with tabs, plus
+  near-misses that must not be galleries. The alerts' adversarial inputs, placed inside a
+  single token (a fenced code block or HTML block) so they reach `trailingLines`, with enough
+  repetitions that the old code could not finish, must give the correct result inside a
+  generous wall-clock bound.
 - D5: closing fence equal, longer, shorter, other character, trailing blanks, quoted, and a
   four-character opener with a three-character line in the content.
 
@@ -218,4 +232,27 @@ deployment, redeploy the previous image tag; nothing on `/data` or in Postgres n
 
 ## Approval record
 
-Pending.
+### Revision 1 (commit `eb127dfbe8c91b19dc8565480c66427d979ac8e1`): changes required
+
+Reviewer: independent Orca worker, OMP, `anthropic/claude-opus-5-5`, launched at effort
+`high` (Orca dispatch `ctx_60158013f863`; the reviewer's harness does not display the level
+to it). The reviewer did not author the design. The first-choice reviewer,
+`openai-codex/gpt-6-astra` at `high`, could not run: the provider's weekly usage limit was
+exhausted.
+
+The reviewer read the source and the CodeQL Fastify, reflected-XSS and tainted-path models,
+and compared every old expression with its replacement over about 80 million generated
+inputs with no mismatch. It expects all eight alerts to clear.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| F1: with directory `/`, `backupFilePath` would return `/` for `''`, `.` and `..` | blocking | Accepted. D1 now rejects `target === root`, tests include `/`, the doc comment states the check is lexical. |
+| F2: D2's prefix was under-specified for a root directory | non-blocking | Accepted. D2 builds the prefix as D1 does, inline. |
+| F3: D4 tests must assert observable output and route the adversarial input through a single token | non-blocking | Accepted. Tests section rewritten. |
+| F4: the D3 markup-echo case tests Fastify, not this change | non-blocking | Accepted. One content-type pin per route; the echo case is dropped. |
+| F5: some D1/D2 cases could not fail; name the backup suite | non-blocking | Accepted. Route-archive traversal and `.`-segment cases dropped; the root-level key case and the `routes-…tar` download kept; suite named. |
+| F6: no polynomial-ReDoS finding expected on the unchanged opener tail | non-blocking | No action. |
+
+### Revision 2
+
+Pending the same reviewer's confirmation.
