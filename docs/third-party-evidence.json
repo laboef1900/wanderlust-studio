@@ -1449,6 +1449,335 @@
           }
         ],
         "sourceTree": "https://github.com/cfinke/Typo.js/tree/1d594ebd9a12f922fa4884324cfb67ae569e4095"
+      },
+      {
+        "name": "@napi-rs/wasm-runtime",
+        "version": "1.2.4",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@astrojs/astro2tsx/node_modules/@napi-rs/wasm-runtime",
+            "integrity": "sha512-AJxoUD2/15ESHbvpcyjU274nsAPLuOtPHCk0vKJM5pj//Fg/B1FXNWjPnXTT9PymCYYiHo4zPj0ZomXBKhoy7g=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@napi-rs/wasm-runtime/-/wasm-runtime-1.2.4.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Original notice file omitted by the npm package is recovered from the identified upstream source snapshot and delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt.",
+        "sourceIdentity": {
+          "revision": "7e3f293e2d6a3032eabfe51ff38bcaa82d342a2f",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/7e3f293e2d6a3032eabfe51ff38bcaa82d342a2f/LICENSE",
+            "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+          }
+        ],
+        "sourceTree": "https://github.com/napi-rs/napi-rs/tree/7e3f293e2d6a3032eabfe51ff38bcaa82d342a2f"
+      },
+      {
+        "name": "@napi-rs/wasm-runtime",
+        "version": "1.2.2",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@napi-rs/wasm-runtime",
+            "integrity": "sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@napi-rs/wasm-runtime/-/wasm-runtime-1.2.2.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Original notice file omitted by the bundled npm package is recovered from the identified upstream source snapshot and delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt.",
+        "sourceIdentity": {
+          "revision": "5b344c367eeed81d1917f7c4d8e65b1adc16de12",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/5b344c367eeed81d1917f7c4d8e65b1adc16de12/LICENSE",
+            "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+          }
+        ],
+        "sourceTree": "https://github.com/napi-rs/napi-rs/tree/5b344c367eeed81d1917f7c4d8e65b1adc16de12"
+      },
+      {
+        "name": "@tybys/wasm-util",
+        "version": "0.10.3",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@tybys/wasm-util",
+            "integrity": "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@tybys/wasm-util/-/wasm-util-0.10.3.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "original-notice-missing",
+        "assessment": "Locked manifest declares MIT and names toyobayashi as author. Reviewed npm tarball and pinned gitHead contain no named license or original copyright file; no copyright notice is invented.",
+        "sourceIdentity": {
+          "revision": "efb17cc128a30fb16b58127738f09c8871a3f7d1",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [],
+        "sourceTree": "https://github.com/toyobayashi/wasm-util/tree/efb17cc128a30fb16b58127738f09c8871a3f7d1"
+      },
+      {
+        "name": "@tailwindcss/oxide-wasm32-wasi",
+        "version": "4.3.5",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@tailwindcss/oxide-wasm32-wasi",
+            "integrity": "sha512-OJhFmlEfdzMr+avACdi40RPtnkW0B6hXyxL/8r+tnEHBWZji36CYRjEXrrvgBmaYsD3oEOBqwYFRKsYvzFe7Bw=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@tailwindcss/oxide-wasm32-wasi/-/oxide-wasm32-wasi-4.3.5.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Package-level MIT LICENSE omitted by the npm package is recovered from the SLSA-identified upstream tag and delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt. Does not establish embedded WASM/Rust dependency notices.",
+        "sourceIdentity": {
+          "revision": "9b2c925c19aae46ff4f9cf54a2fa6d2dbac7fa19",
+          "basis": "npm SLSA provenance resolvedDependencies; signature not independently verified"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/tailwindlabs/tailwindcss/9b2c925c19aae46ff4f9cf54a2fa6d2dbac7fa19/LICENSE",
+            "sha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985"
+          }
+        ],
+        "sourceTree": "https://github.com/tailwindlabs/tailwindcss/tree/9b2c925c19aae46ff4f9cf54a2fa6d2dbac7fa19"
+      },
+      {
+        "name": "@bruits/satteri-linux-x64-gnu",
+        "version": "0.11.7",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@bruits/satteri-linux-x64-gnu",
+            "integrity": "sha512-gDp4v1jjckeNCetLtrMUfDV4CKGYL6fayDPdoaQq09nkDCSrclxEFK7kAmRuHhoalgsao4bZMFqQr3HQtN2NEQ=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@bruits/satteri-linux-x64-gnu/-/satteri-linux-x64-gnu-0.11.7.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Package-level MIT LICENSE is delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt (identical to 0.10.5). Does not certify embedded Rust/native dependencies.",
+        "sourceIdentity": {
+          "revision": "7d1297b7e4551a1c5124fa07bd2d1d05f66236e6",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/bruits/satteri/7d1297b7e4551a1c5124fa07bd2d1d05f66236e6/LICENSE",
+            "sha256": "902c04ca47795eb6e9b2a2f178a9d9e62f5330988a8d6e1818ee33aeb0f426c1"
+          }
+        ],
+        "sourceTree": "https://github.com/bruits/satteri/tree/7d1297b7e4551a1c5124fa07bd2d1d05f66236e6"
+      },
+      {
+        "name": "@bruits/satteri-linux-arm64-gnu",
+        "version": "0.11.7",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@bruits/satteri-linux-arm64-gnu",
+            "integrity": "sha512-aeH365GHaqv01wRSiHaGUlpL28U8e9UnV9LxjIF6BOyTj71/M5bop4HKomcis4VxFZjd68fDqNyU22yFkF/h7A=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@bruits/satteri-linux-arm64-gnu/-/satteri-linux-arm64-gnu-0.11.7.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Package-level MIT LICENSE is delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt (identical to 0.10.5). Does not certify embedded Rust/native dependencies.",
+        "sourceIdentity": {
+          "revision": "7d1297b7e4551a1c5124fa07bd2d1d05f66236e6",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/bruits/satteri/7d1297b7e4551a1c5124fa07bd2d1d05f66236e6/LICENSE",
+            "sha256": "902c04ca47795eb6e9b2a2f178a9d9e62f5330988a8d6e1818ee33aeb0f426c1"
+          }
+        ],
+        "sourceTree": "https://github.com/bruits/satteri/tree/7d1297b7e4551a1c5124fa07bd2d1d05f66236e6"
+      },
+      {
+        "name": "@rolldown/binding-linux-x64-gnu",
+        "version": "1.2.19",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@rolldown/binding-linux-x64-gnu",
+            "integrity": "sha512-rm75/9DkHKeU2WnA8w4X94WGYgLlDCFCfkQC+4bguVJmC/jvDRv2B+2wLOYhyE0fVuv7//Ckk39OoOufyCu76Q=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@rolldown/binding-linux-x64-gnu/-/binding-linux-x64-gnu-1.2.19.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Package-level MIT LICENSE is delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt (identical to 1.2.15). Does not certify embedded Rust/native dependencies.",
+        "sourceIdentity": {
+          "revision": "b9c75ddc8bd50f2c1a4c7be0b548bdab5cba85ab",
+          "basis": "npm SLSA provenance resolvedDependencies; signature not independently verified"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/rolldown/rolldown/b9c75ddc8bd50f2c1a4c7be0b548bdab5cba85ab/LICENSE",
+            "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734"
+          }
+        ],
+        "sourceTree": "https://github.com/rolldown/rolldown/tree/b9c75ddc8bd50f2c1a4c7be0b548bdab5cba85ab"
+      },
+      {
+        "name": "@rolldown/binding-linux-arm64-gnu",
+        "version": "1.2.19",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/@rolldown/binding-linux-arm64-gnu",
+            "integrity": "sha512-pm/apFMBnSbFb3O6nG5pHO1iqHhZrjGDFEjSm+ot9J17XXPvH9L90y5h+jgfHCE+Qdlsvy8qKEcU4VKxgjD+vA=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-1.2.19.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Package-level MIT LICENSE is delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt (identical to 1.2.15). Does not certify embedded Rust/native dependencies.",
+        "sourceIdentity": {
+          "revision": "b9c75ddc8bd50f2c1a4c7be0b548bdab5cba85ab",
+          "basis": "npm SLSA provenance resolvedDependencies; signature not independently verified"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/rolldown/rolldown/b9c75ddc8bd50f2c1a4c7be0b548bdab5cba85ab/LICENSE",
+            "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734"
+          }
+        ],
+        "sourceTree": "https://github.com/rolldown/rolldown/tree/b9c75ddc8bd50f2c1a4c7be0b548bdab5cba85ab"
+      },
+      {
+        "name": "@esbuild/linux-x64",
+        "version": "0.28.2",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "uploader",
+            "path": "node_modules/@esbuild/linux-x64",
+            "integrity": "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Original notice file omitted by the package is recovered from the identified upstream source snapshot and delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt.",
+        "sourceIdentity": {
+          "revision": "609683d892977362a0f99026cb74b96263d728a9",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE.md",
+            "url": "https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md",
+            "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+          }
+        ],
+        "sourceTree": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9"
+      },
+      {
+        "name": "@esbuild/linux-arm64",
+        "version": "0.28.2",
+        "declaredLicense": "MIT",
+        "locations": [
+          {
+            "tree": "uploader",
+            "path": "node_modules/@esbuild/linux-arm64",
+            "integrity": "sha512-pW4AC0P3it8c7do9MVM4p51FzHzdM/TZrerurgRcHJ2WTa1VQ1CIq18xncfpBJw4ojkiZZrKW2yIBWBP92j6Ug=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "pinned-source-notice-recovered",
+        "assessment": "Original notice file omitted by the package is recovered from the identified upstream source snapshot and delivered in 2026-11-18-dep-upgrade-gap-NOTICES.txt.",
+        "sourceIdentity": {
+          "revision": "609683d892977362a0f99026cb74b96263d728a9",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "2026-11-18-dep-upgrade-gap-NOTICES.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE.md",
+            "url": "https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md",
+            "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+          }
+        ],
+        "sourceTree": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9"
+      },
+      {
+        "name": "pmtiles",
+        "version": "4.5.0",
+        "declaredLicense": "BSD-3-Clause",
+        "locations": [
+          {
+            "tree": "site",
+            "path": "node_modules/pmtiles",
+            "integrity": "sha512-CBeD4SoUluFziGdy/8k7FOjQxQy486n+929W/tWophauvMICpkZ26vGBWhDt/6b1FZQWNaf4jFdT/5+q0Wii5w=="
+          },
+          {
+            "tree": "uploader",
+            "path": "node_modules/pmtiles",
+            "integrity": "sha512-CBeD4SoUluFziGdy/8k7FOjQxQy486n+929W/tWophauvMICpkZ26vGBWhDt/6b1FZQWNaf4jFdT/5+q0Wii5w=="
+          }
+        ],
+        "tarball": "https://registry.npmjs.org/pmtiles/-/pmtiles-4.5.0.tgz",
+        "tarballIntegrityMatched": true,
+        "status": "existing-supplement-covered",
+        "assessment": "Package-level notice is already delivered by pmtiles-LICENSE.txt (identical upstream text at gitHead 3b10e67edb65c6b04549f74c0279cef8328d859c).",
+        "sourceIdentity": {
+          "revision": "3b10e67edb65c6b04549f74c0279cef8328d859c",
+          "basis": "npm registry gitHead"
+        },
+        "existingSupplement": "pmtiles-LICENSE.txt",
+        "embeddedNotices": [],
+        "upstreamNotices": [
+          {
+            "path": "LICENSE",
+            "url": "https://raw.githubusercontent.com/protomaps/PMTiles/3b10e67edb65c6b04549f74c0279cef8328d859c/LICENSE",
+            "sha256": "0371c38f338835f7fc13ed71176f3d92144e22c8b736a31cced57adbbeb647b3"
+          }
+        ],
+        "sourceTree": "https://github.com/protomaps/PMTiles/tree/3b10e67edb65c6b04549f74c0279cef8328d859c"
       }
     ],
     "limits": [

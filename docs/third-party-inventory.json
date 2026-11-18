@@ -4,7 +4,7 @@
   "generator": "uploader/scripts/generate-third-party-inventory.mjs",
   "evidence": {
     "path": "docs/third-party-evidence.json",
-    "sha256": "314cd0bcb49b6cfa48c22720d59eba3c85381cd34a89d9639d5c374f9975dd50",
+    "sha256": "52f0993730c20ab30001e9af26a3400ee9a09e8343562f4a0a78a66b43f95107",
     "reviewedAt": "2026-10-27"
   },
   "imageEvidence": {
@@ -14,13 +14,13 @@
   "lockfiles": {
     "site": {
       "path": "site/package-lock.json",
-      "sha256": "8aec74ad22f920bf61ce60146c89c5c1b75a97469d67a52c2fcd87b556150c85",
+      "sha256": "6af5d922d3e81ff1c2cbb97b53dee1b3f1bc7c7eacfb167d17eff160ac7d10e1",
       "lockfileVersion": 3,
       "entries": 479
     },
     "uploader": {
       "path": "uploader/package-lock.json",
-      "sha256": "650d164e44c38e92b494f3de02ea28b488725be739f0f8b82fb0e7bcce02d50e",
+      "sha256": "1479362ead3769d39f30486dc8dc34a9016c197cf93a45a51635cd779a0780ff",
       "lockfileVersion": 3,
       "entries": 369
     }
@@ -30,7 +30,7 @@
       "tree": "site",
       "path": "",
       "name": "site",
-      "version": "0.26.1",
+      "version": "0.26.2",
       "license": "AGPL-3.0-only",
       "resolved": null,
       "integrity": null,
@@ -7221,7 +7221,7 @@
       "tree": "uploader",
       "path": "",
       "name": "simonswanderlust-images",
-      "version": "0.26.1",
+      "version": "0.26.2",
       "license": "AGPL-3.0-only",
       "resolved": null,
       "integrity": null,
