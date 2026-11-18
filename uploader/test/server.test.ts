@@ -26,6 +26,7 @@ import { defaultSettings, validate } from '../src/settings.js';
 import type { Settings, SettingsStore } from '../src/settings.js';
 import { DEFAULT_TRANSLATION_PROMPT, TRANSLATION_PROMPT_MAX_LENGTH } from '../src/translation-prompt.js';
 import { DEFAULT_DRAFTING_PROMPT, DRAFTING_PROMPT_MAX_LENGTH } from '../src/drafting-prompt.js';
+import { DEFAULT_REVIEW_UPDATE_PROMPT } from '../src/editorial-review.js';
 import { memoryUserStore, hashPassword, type User, type UserStore } from '../src/users.js';
 import { randomUUID } from 'node:crypto';
 import { memorySessionStore, type SessionStore } from '../src/sessions.js';
@@ -1637,6 +1638,30 @@ describe('buildServer config', () => {
 });
 
 describe('settings endpoints', () => {
+  it('#630 POST /settings stores the practical-details update instructions verbatim and /ai-config hands them to authors', async () => {
+    const b = build();
+    const admin = await authed(b, { username: 'admin' });
+    const post = (payload: unknown) => b.app.inject({ method: 'POST', url: '/settings', cookies: admin.cookie, payload: payload as object });
+    for (const reviewUpdatePrompt of ['', '   ', 'Update.\u0000', 'x'.repeat(4001), 7, null]) {
+      const refused = await post({ reviewUpdatePrompt });
+      expect(refused.statusCode).toBe(400);
+      expect(refused.json()).toEqual({
+        error: 'Practical-details update instructions are required and must be visible plain text of at most 4000 characters.',
+      });
+    }
+    const prompt = '  Keep my voice.\nAdd a short practical section.  ';
+    const saved = await post({ reviewUpdatePrompt: prompt });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ reviewUpdatePrompt: prompt, reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT });
+    const author = await authed(b, { isAdmin: false, username: 'author' });
+    const config = await b.app.inject({ url: '/ai-config', cookies: author.cookie });
+    expect(config.json()).toMatchObject({ reviewUpdatePrompt: prompt });
+    for (const purpose of ['caption', 'translation', 'drafting']) {
+      expect((await b.app.inject({ url: '/ai-config?purpose=' + purpose, cookies: author.cookie })).body).not.toContain('Keep my voice');
+    }
+    await b.app.close();
+  });
+
   it('GET /settings is admin-only: 401 unauthenticated, 403 for authors', async () => {
     const b = build();
     expect((await b.app.inject({ method: 'GET', url: '/settings' })).statusCode).toBe(401);
@@ -1648,6 +1673,7 @@ describe('settings endpoints', () => {
     expect(res.json()).toEqual({
       ...SETTINGS, aiProviders: SETTINGS.aiProviders.map((p) => ({ ...p, hasApiKey: false })),
       translationPromptDefault: DEFAULT_TRANSLATION_PROMPT, draftingPromptDefault: DEFAULT_DRAFTING_PROMPT,
+      reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT,
     });
   });
 
@@ -1828,7 +1854,7 @@ describe('AI provider routes', () => {
     });
     expect(created.statusCode).toBe(201);
     expect(created.body).not.toContain('fixture-first');
-    expect(Object.keys(created.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault'].sort());
+    expect(Object.keys(created.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault', 'reviewUpdatePromptDefault'].sort());
     const view = created.json().aiProviders[1];
     expect(view).toEqual({
       id: expect.stringMatching(/^p-[0-9a-f]{8}$/), name: 'OpenRouter', kind: 'openrouter',
@@ -2041,7 +2067,7 @@ describe('AI credential boundaries', () => {
     expect(saved.statusCode).toBe(200);
     expect(saved.headers['cache-control']).toBe('no-store');
     expect(saved.json()).toMatchObject({ aiDefaultProviderId: 'remote', reviewProviderId: null, captionProviderId: 'lm-studio' });
-    expect(Object.keys(saved.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault'].sort());
+    expect(Object.keys(saved.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault', 'reviewUpdatePromptDefault'].sort());
     expect(settings.get()).not.toHaveProperty('lmBaseUrl');
     expect(settings.get()).not.toHaveProperty('aiProvider');
     expect((await b.app.inject({ method: 'POST', url: '/settings', cookies: (await authed(b, { isAdmin: false, username: 'author' })).cookie, payload: { captionProviderId: 'remote' } })).statusCode).toBe(403);
@@ -2114,6 +2140,7 @@ describe('AI credential boundaries', () => {
     const config = (query = '') => b.app.inject({ url: '/ai-config' + query, cookies: cookie });
     const review = {
       aiModel: SETTINGS.aiModel, reviewPrompt: SETTINGS.reviewPrompt, reviewTimeoutMs: SETTINGS.reviewTimeoutMs,
+      reviewUpdatePrompt: SETTINGS.reviewUpdatePrompt,
     };
 
     // Explicit caption assignment; review follows the default.

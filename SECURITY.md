@@ -1123,8 +1123,9 @@ Design and misuse cases: `docs/superpowers/specs/2026-09-05-safe-fetch-redirects
 
 AI inference is **browser-direct**, not a server remote-fetch path. Alt-text suggestions
 (local LM Studio or an admin-selected remote vision provider), editorial review, excerpts,
-article translation and story drafting never call `safeFetch` or a server inference proxy.
-`src/editorial-review.ts` contains only the review contract, schema, prompt and parser.
+article translation, story drafting and the Story review article update never call `safeFetch`
+or a server inference proxy. `src/editorial-review.ts` contains only the review and
+article-update contracts, schema, prompts, parsers and structure check.
 
 Review, excerpt, caption, translation, drafting and model-discovery clients scope optional
 Bearer keys to individual requests; local LM Studio receives none. Excerpts reuse the review
@@ -1139,7 +1140,7 @@ exact URL hostname equality, not a string/prefix match. Provider errors and abor
 are not surfaced verbatim, since they may echo credentials or unpublished content.
 Review and excerpt requests share an abortable deadline covering attempts and body reads;
 only an HTTP 400 explicitly naming unsupported `response_format` permits one retry without
-that parameter.
+that parameter. The Story review article update (#630) never retries.
 Anthropic's official HTTPS origin (`https://api.anthropic.com`, exact parsed origin equality)
 also receives request-local `anthropic-dangerous-direct-browser-access: true` and
 `anthropic-version: 2023-06-01` headers for discovery and all inference operations. This opts
@@ -1165,14 +1166,76 @@ authorization rule; the existing `/ai-config` roles and browser-direct trust mod
 
 Model output is untrusted: both review parsers validate required fields, types and statuses,
 reject extra properties, strip Unicode controls, and cap text/list lengths. This is not
-HTML sanitization: the editor drawer renders results through `textContent`/input values,
-never `innerHTML`. The prompt treats the draft as data and asks for missing facts to verify,
+HTML sanitization: the Story review dialog (a centered modal since #630) renders results
+through `textContent`/input values, never `innerHTML`. The prompt treats the draft as data and asks for missing facts to verify,
 not invented facts or links. Reviews grant no write/publish authority: only explicit
 title/excerpt application changes form fields, and saving/publishing remains separate.
-The drawer does not persist results or credentials. It aborts and invalidates work when
-the reviewed draft changes or the drawer closes; late results cannot mutate another
+The dialog does not persist results or credentials. It aborts and invalidates work when
+the reviewed draft changes or the dialog closes; late results cannot mutate another
 locale/post. Cancellation does not retract a snapshot already received by the provider.
 Deterministic checks remain usable when remote review fails.
+
+Since #630 image alt-text findings have their own required `altText` section (`status`,
+`critique`, optional `missingImages`) and never go into `practicalDetails.missingAspects`.
+`LLM.reviewStory` appends a code-owned rule and the current schema after the admin's review
+prompt, so a customised or older prompt still asks for `altText`; both parsers reject a review
+without it. A stored review prompt byte-identical to a shipped pre-#630 default (neutral or
+legacy-branded) is replaced in memory by the current default on load; customised prompts are
+kept verbatim and `settings.json` is not rewritten on load. Rollback residual: **any** settings
+save after #630 writes the whole merged object, including the upgraded prompt, which pre-#630
+code would accept as a prompt but whose `altText` replies its parser rejects. Recovery after a
+rollback is deleting the `reviewPrompt` key from `settings.json` (pre-#630 code then uses its
+own default) or restoring a pre-upgrade copy of the file; the pre-#630 settings page has no
+reset button for that prompt.
+
+**Practical-details article update (#630).** When a review lists missing practical details,
+the author may answer them (one optional textarea per item, plus optional Additional notes)
+and click **Update article with AI**. That click is a separate consent: the dialog discloses
+that a new request sends the active language's title, excerpt, Markdown body and the non-blank
+answers and notes to the shown provider, endpoint and model, and that charges may apply. The
+click re-reads `/ai-config`, and any change of provider, endpoint, model, review prompt,
+update instructions or timeout requires another click. It reuses the Story review assignment
+(`reviewProviderId`, `aiModel`, `reviewTimeoutMs`) and its request-local key, which is cleared
+after the call. The system message starts with the admin-editable **practical-details update
+instructions** (`reviewUpdatePrompt`; the #567 visible-plain-text rule, at most 4000 UTF-16
+units, validated by the settings API, the loader and the browser transport; returned by the
+default `/ai-config` purpose, readable by authors and never logged), followed by a fixed
+code-owned suffix: the active language, the untrusted-data guard, a rule to use only the
+author's answers and facts already in the draft, a rule to change only the body, a rule to keep
+every fence, heading, link, image, reference definition and inline HTML and to add no links,
+web or e-mail addresses, angle brackets, images, HTML or code, and the exact
+`{"markdown":"…"}` contract. The user message is
+`{ locale, title, excerpt, markdown, practicalDetails, additionalNotes? }`; the transport checks
+every limit (body at most 100,000 units, at most 10 answers of at most 2000 units with aspects
+of at most 300, notes of at most 4000) before fetch, and refuses a body that could never pass
+the output checks (blank, controls, lone surrogates, invisible or bidi characters, leading
+front matter); CRLF drafts are compared as LF. One bounded, abortable request: no
+`response_format` fallback, no retry, 2 MiB response cap, `max_tokens` 32768, a single choice
+that must finish with `stop` and carry no tool calls. The parser drops only closed `<think>`
+blocks (linear scan; an unclosed one refuses), then runs `JSON.parse` on the whole remaining
+text, so no fragment is salvaged from prose. The object must have exactly one own key,
+`markdown`, a string passing the same body checks. The result must also keep the draft's
+protected structure, compared deterministically on LF text (`hasPreservedStructure`, mirrored
+in `public/llm.js`): every fenced block (galleries included, nested or not) verbatim and in
+order with none added, identical ordered sequences of images, link destinations, reference
+definitions with their neighbouring lines, bracketed text, bare URLs, e-mail shapes, raw HTML
+and comments, character references, backslash escapes and backtick runs (each tagged with its
+line's container and indentation prefix, so re-indenting a link line into code is caught),
+every original ATX and setext heading verbatim and in order, and no new level-1 heading.
+Structural failures have their own fixed error (`Article update changed protected structure`)
+and neither error echoes model text. A renderer-backed differential test
+(`test/editorial-review-update-render.test.ts`, fixed corpus plus a seeded randomized one of
+whole-line and mid-line edits) checks that accepted updates keep every rendered heading and
+anchor, link, image and gallery and add no active element. The reply is shown as plain text
+with a line diff, added/removed counts and a warning when text is removed or the article gets
+shorter. Only an explicit **Apply updated article** writes it, and only into the unsaved body
+of the same language, after checking that the post, language and body are unchanged since the
+request. Title, excerpt, slug, images, shared fields and the other language are never touched,
+and nothing is saved or published. A guarded **Undo update** restores the previous body while
+the body is still the applied text. Cancel aborts only the update and keeps the answers;
+closing the dialog aborts everything and discards answers and any unapplied preview. These
+checks are defense in depth; the rendering boundary stays `rehype-sanitize`, the preview CSP
+and the publish gates. See `docs/superpowers/specs/2026-11-18-issue-630-story-review-practical-update.md`.
 
 The excerpt generator sends only the active locale's unsaved title and manuscript, not the
 current excerpt. Its parser accepts only a bounded `{"excerpt":"…"}` object, rejects extra

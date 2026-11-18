@@ -1411,6 +1411,19 @@ criterion (2.5.5 is AAA), so the accessibility commitment in `PRODUCT.md` is una
 - Gallery blocks remain part of the canonical Markdown draft. Visual gallery editing uses
   the existing Media picker and preserves directives, ordering, captions and source URLs;
   Markdown mode exposes the underlying fence.
+- **Story review** (#630) opens as a centered modal (`dialog.story-review`, sized like the
+  translation dialog: `min(56rem, 100vw - 2rem)`, sticky header and footer, a scrolling body;
+  nearly full screen on phones), not a side panel. Quick checks come first, then the editorial
+  cards: Title, Excerpt, Headings, Practical details, **Alt text** (its own card with an optional
+  list of images to describe) and Internal links. When Practical details lists missing items,
+  each item gets a labelled answer field plus one optional **Additional notes** field, a plain
+  disclosure of the separate AI request, and **Update article with AI** / **Cancel update**
+  (secondary buttons). The reply appears inside the modal as a summary line (lines and
+  characters added and removed, with a warning when text is removed), a plain-text line diff
+  marked with + and − (never colour alone) and a readonly Markdown preview; only **Apply
+  updated article** changes the body of the active language, and **Undo update** restores it.
+  Nothing is saved or published from the dialog. Closing it discards typed answers, which the
+  dialog says. All of its copy comes from `editor.chrome.*` in `site/src/i18n/ui.ts`.
 - **Translate** (accessible name **Translate with AI**) stays beside the locale tabs, its label
   led by the shared 1rem stroke AI icon (`AdminIcons.ai()`, `currentColor`, hidden from assistive
   technology) and kept on one line at every width. It also works for a language that is not

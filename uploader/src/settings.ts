@@ -1,7 +1,10 @@
 import { linkSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DEFAULT_PROMPT } from './caption.js';
-import { DEFAULT_REVIEW_PROMPT } from './editorial-review.js';
+import {
+  DEFAULT_REVIEW_PROMPT, DEFAULT_REVIEW_UPDATE_PROMPT, PRE_630_REVIEW_PROMPT, isReviewUpdatePrompt,
+} from './editorial-review.js';
+import { LEGACY_REVIEW_PROMPT, PRE_630_LEGACY_REVIEW_PROMPT } from './site-identity-legacy.js';
 import { DEFAULT_PROCESS_OPTIONS } from './variants.js';
 import { DEFAULT_TRANSLATION_PROMPT, isTranslationPrompt } from './translation-prompt.js';
 import { DEFAULT_DRAFTING_PROMPT, isDraftingPrompt } from './drafting-prompt.js';
@@ -59,6 +62,12 @@ export interface Settings {
   captionPrompt: string;
   aiModel: string;
   reviewPrompt: string;
+  /**
+   * #630: owner guidance that leads the practical-details article-update system
+   * message; the code-owned language, guard, structure rules and JSON contract
+   * are always appended after it. Stored verbatim, never blank (the #567 rule).
+   */
+  reviewUpdatePrompt: string;
   reviewTimeoutMs: number;
   backupSchedule: BackupSchedule;
   backupRetention: number;
@@ -126,6 +135,7 @@ export function defaultSettings(): Settings {
     captionPrompt: DEFAULT_PROMPT,
     aiModel: 'qwen2.5-7b-instruct',
     reviewPrompt: DEFAULT_REVIEW_PROMPT,
+    reviewUpdatePrompt: DEFAULT_REVIEW_UPDATE_PROMPT,
     reviewTimeoutMs: 60000,
     backupSchedule: 'off',
     backupRetention: 14,
@@ -185,6 +195,8 @@ const FIELD_CHECKS: { [K in keyof Settings]: (v: unknown) => string | null } = {
   captionPrompt: (v) => (typeof v === 'string' && v.trim() !== '' ? null : 'Prompt is required.'),
   aiModel: (v) => typeof v === 'string' && v.length <= 100 ? null : 'Review model must be a string of at most 100 characters.',
   reviewPrompt: (v) => typeof v === 'string' ? null : 'Review prompt must be a string.',
+  reviewUpdatePrompt: (v) => isReviewUpdatePrompt(v)
+    ? null : 'Practical-details update instructions are required and must be visible plain text of at most 4000 characters.',
   reviewTimeoutMs: (v) =>
     intInRange(v, 5000, 300000) ? null : 'Review timeout must be a whole number of milliseconds between 5000 and 300000.',
   backupSchedule: (v) =>
@@ -224,6 +236,17 @@ function endpoint(v: unknown, protocols: readonly string[]): boolean {
 
 function routingUrlError(profile: string): string {
   return `${profile} routing URL must be an HTTP(S) URL without credentials, query, or fragment; leave empty to disable.`;
+}
+
+/**
+ * #630: a review prompt still byte-identical to a shipped pre-#630 default
+ * becomes the current default (with the `altText` section). A customised prompt
+ * is returned verbatim; `LLM.reviewStory` appends the current schema to it.
+ */
+function upgradeReviewPrompt(prompt: string): string {
+  if (prompt === PRE_630_REVIEW_PROMPT) return DEFAULT_REVIEW_PROMPT;
+  if (prompt === PRE_630_LEGACY_REVIEW_PROMPT) return LEGACY_REVIEW_PROMPT;
+  return prompt;
 }
 
 /** Shallow copy with a private provider array, so no caller can mutate the cache. */
@@ -313,6 +336,9 @@ function loadSettings(path: string, defaults: Settings, log: (msg: string) => vo
   // Every key was either copied from `defaults` or passed its own type check;
   // drop any extra keys a hand edit put inside a provider entry.
   loaded.aiProviders = cleanProviders(loaded.aiProviders);
+  // In memory only: the file keeps its bytes until the next save, so an
+  // unsaved install rolls back to pre-#630 code without manual repair.
+  loaded.reviewPrompt = upgradeReviewPrompt(loaded.reviewPrompt);
 
   let legacy: LoadedSettings['legacy'] = null;
   if (isLegacyAiSettings(fromFile)) {
@@ -375,7 +401,7 @@ export function createSettingsStore({
         log('settings: reviewPrompt not migrated because the settings file was unavailable or invalid; using the default.');
         return;
       }
-      const next = copySettings(validate({ ...current, reviewPrompt: prompt }));
+      const next = copySettings(validate({ ...current, reviewPrompt: upgradeReviewPrompt(prompt) }));
       // A pending registry migration must publish the preserved prompt and registry
       // together, only after its encrypted-key migration and rollback copy.
       if (!pending) persist(next);

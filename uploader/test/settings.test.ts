@@ -8,6 +8,10 @@ import {
 } from '../src/ai-providers.js';
 import { DEFAULT_TRANSLATION_PROMPT, TRANSLATION_PROMPT_MAX_LENGTH } from '../src/translation-prompt.js';
 import { DEFAULT_DRAFTING_PROMPT, DRAFTING_PROMPT_MAX_LENGTH, isDraftingPrompt } from '../src/drafting-prompt.js';
+import {
+  DEFAULT_REVIEW_PROMPT, DEFAULT_REVIEW_UPDATE_PROMPT, PRE_630_REVIEW_PROMPT, REVIEW_UPDATE_PROMPT_MAX_LENGTH,
+} from '../src/editorial-review.js';
+import { LEGACY_REVIEW_PROMPT, PRE_630_LEGACY_REVIEW_PROMPT } from '../src/site-identity-legacy.js';
 
 const DEFAULTS: Settings = defaultSettings();
 
@@ -1012,5 +1016,91 @@ describe('image conversion settings', () => {
       convertJpeg: false, webpQuality: 75, avifQuality: 64,
     });
     expect(log).toHaveBeenCalledWith(expect.stringContaining('"webpQuality"'));
+  });
+});
+
+describe('#630 practical-details update instructions', () => {
+  const MESSAGE = 'Practical-details update instructions are required and must be visible plain text of at most 4000 characters.';
+  const MARKER = 'PRIVATE-UPDATE-MARKER';
+  const INVALID: unknown[] = [
+    7, null, true, [MARKER], { secret: MARKER }, '', ' \n\t ', MARKER + 'x'.repeat(REVIEW_UPDATE_PROMPT_MAX_LENGTH + 1 - MARKER.length),
+    '\u200b\u2060\u00ad\ufeff', 'Integrate.\u0000', 'Integrate.\u0085', 'Integrate.\ud800',
+  ];
+
+  it('defaults to the owner-approved guidance', () => {
+    expect(DEFAULTS.reviewUpdatePrompt).toBe(DEFAULT_REVIEW_UPDATE_PROMPT);
+    expect(DEFAULT_REVIEW_UPDATE_PROMPT).toBe('Integrate the author’s factual answers smoothly into the existing travel story in the same voice, tense, and Markdown structure. Add practical details where they fit naturally in the narrative or a concise practical section without rewriting unrelated passages.');
+  });
+
+  it('refuses invalid guidance atomically with one fixed message and stores valid text verbatim', async () => {
+    const path = join(dir, 'settings.json');
+    const store = createSettingsStore({ path, defaults: DEFAULTS });
+    store.update({ backupSchedule: 'daily' });
+    const before = await readFile(path, 'utf8');
+    for (const reviewUpdatePrompt of INVALID) {
+      const error = (() => { try { store.update({ reviewUpdatePrompt } as Partial<Settings>); } catch (e) { return e; } })();
+      expect(error, JSON.stringify(reviewUpdatePrompt)?.slice(0, 30)).toBeInstanceOf(SettingsError);
+      expect((error as Error).message).toBe(MESSAGE);
+      expect(await readFile(path, 'utf8')).toBe(before);
+    }
+    const longest = 'x'.repeat(REVIEW_UPDATE_PROMPT_MAX_LENGTH);
+    expect(store.update({ reviewUpdatePrompt: longest }).reviewUpdatePrompt).toBe(longest);
+    const multiline = '  Keep my voice.\n\tUse a short practical section.\r\n';
+    expect(store.update({ reviewUpdatePrompt: multiline }).reviewUpdatePrompt).toBe(multiline);
+    expect(createSettingsStore({ path, defaults: DEFAULTS }).get().reviewUpdatePrompt).toBe(multiline);
+  });
+
+  it('reads the default from a file without the key, does not rewrite it, and repairs an invalid value by name only', async () => {
+    const path = join(dir, 'settings.json');
+    const bytes = JSON.stringify({ backupSchedule: 'daily' });
+    await writeFile(path, bytes);
+    const quiet = vi.fn();
+    expect(createSettingsStore({ path, defaults: DEFAULTS, log: quiet }).get().reviewUpdatePrompt).toBe(DEFAULT_REVIEW_UPDATE_PROMPT);
+    expect(await readFile(path, 'utf8')).toBe(bytes);
+    expect(quiet).not.toHaveBeenCalled();
+    await writeFile(path, JSON.stringify({ backupSchedule: 'daily', reviewUpdatePrompt: MARKER + '\u0000' }));
+    const log = vi.fn();
+    expect(createSettingsStore({ path, defaults: DEFAULTS, log }).get()).toMatchObject({
+      backupSchedule: 'daily', reviewUpdatePrompt: DEFAULT_REVIEW_UPDATE_PROMPT,
+    });
+    const lines = log.mock.calls.map((call) => String(call[0]));
+    expect(lines).toEqual([expect.stringContaining('"reviewUpdatePrompt"')]);
+    expect(lines.join(' ')).not.toContain(MARKER);
+  });
+});
+
+describe('#630 review prompt upgrade', () => {
+  it('upgrades only a byte-identical pre-#630 default, in memory, leaving the file untouched until a save', async () => {
+    const path = join(dir, 'settings.json');
+    for (const [stored, upgraded] of [
+      [PRE_630_REVIEW_PROMPT, DEFAULT_REVIEW_PROMPT],
+      [PRE_630_LEGACY_REVIEW_PROMPT, LEGACY_REVIEW_PROMPT],
+    ] as const) {
+      const bytes = JSON.stringify({ reviewPrompt: stored, backupSchedule: 'daily' });
+      await writeFile(path, bytes);
+      const store = createSettingsStore({ path, defaults: DEFAULTS });
+      expect(store.get().reviewPrompt).toBe(upgraded);
+      expect(upgraded).toContain('altText');
+      expect(await readFile(path, 'utf8')).toBe(bytes);
+      store.update({ backupRetention: 3 });
+      expect(JSON.parse(await readFile(path, 'utf8')).reviewPrompt).toBe(upgraded);
+    }
+  });
+
+  it('keeps customised and near-default prompts verbatim', async () => {
+    const path = join(dir, 'settings.json');
+    for (const custom of ['House review rules.', PRE_630_REVIEW_PROMPT + ' ', PRE_630_REVIEW_PROMPT.replace('travel', 'Travel'), '']) {
+      await writeFile(path, JSON.stringify({ reviewPrompt: custom }));
+      expect(createSettingsStore({ path, defaults: DEFAULTS }).get().reviewPrompt).toBe(custom);
+    }
+  });
+
+  it('upgrades a pre-#630 legacy prompt passed to the identity migration', async () => {
+    const path = join(dir, 'settings.json');
+    await writeFile(path, JSON.stringify({ backupSchedule: 'daily' }));
+    const store = createSettingsStore({ path, defaults: DEFAULTS });
+    store.preserveLegacyReviewPrompt(PRE_630_LEGACY_REVIEW_PROMPT);
+    expect(store.get().reviewPrompt).toBe(LEGACY_REVIEW_PROMPT);
+    expect(JSON.parse(await readFile(path, 'utf8')).reviewPrompt).toBe(LEGACY_REVIEW_PROMPT);
   });
 });

@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { parseCaption as serverParseCaption } from '../src/caption.js';
 import { DEFAULT_DRAFTING_PROMPT, DRAFTING_PROMPT_MAX_LENGTH, isDraftingPrompt } from '../src/drafting-prompt.js';
 import { TRANSLATION_PROMPT_MAX_LENGTH, isTranslationPrompt } from '../src/translation-prompt.js';
+import {
+  DEFAULT_REVIEW_UPDATE_PROMPT, REVIEW_UPDATE_PROMPT_MAX_LENGTH, isReviewUpdatePrompt,
+} from '../src/editorial-review.js';
 
 // Load the browser llm.js in Node (its top-level body only assigns window.LLM;
 // the fetch/canvas/Image calls live inside method bodies, so no DOM is needed).
@@ -17,6 +20,9 @@ const win: {
     draftingPromptProblem(value: unknown): string | null;
     isTranslationPrompt(value: unknown): boolean;
     translationPromptProblem(value: unknown): string | null;
+    REVIEW_UPDATE_PROMPT_MAX_LENGTH: number;
+    isReviewUpdatePrompt(value: unknown): boolean;
+    reviewUpdatePromptProblem(value: unknown): string | null;
   };
 } = {};
 // eslint-disable-next-line no-new-func
@@ -297,7 +303,7 @@ describe('browser caption replies', () => {
   });
 });
 
-describe('owner instruction rule parity (#567, #579)', () => {
+describe('owner instruction rule parity (#567, #579, #630)', () => {
   const llm = win.LLM!;
   const limit = DRAFTING_PROMPT_MAX_LENGTH;
 
@@ -315,7 +321,12 @@ describe('owner instruction rule parity (#567, #579)', () => {
     for (const [value, valid] of cases) {
       expect(llm.isDraftingPrompt(value), JSON.stringify(value)?.slice(0, 40)).toBe(valid);
       expect(isDraftingPrompt(value), JSON.stringify(value)?.slice(0, 40)).toBe(valid);
+      expect(llm.isReviewUpdatePrompt(value), JSON.stringify(value)?.slice(0, 40)).toBe(valid);
+      expect(isReviewUpdatePrompt(value), JSON.stringify(value)?.slice(0, 40)).toBe(valid);
     }
+    expect(llm.REVIEW_UPDATE_PROMPT_MAX_LENGTH).toBe(REVIEW_UPDATE_PROMPT_MAX_LENGTH);
+    expect(REVIEW_UPDATE_PROMPT_MAX_LENGTH).toBe(limit);
+    expect(isReviewUpdatePrompt(DEFAULT_REVIEW_UPDATE_PROMPT)).toBe(true);
   });
 
   it('names the same problem for drafting and translation, so Settings shows the matching message', () => {
@@ -326,6 +337,7 @@ describe('owner instruction rule parity (#567, #579)', () => {
     for (const [value, problem] of problems) {
       expect(llm.draftingPromptProblem(value)).toBe(problem);
       expect(llm.translationPromptProblem(value)).toBe(problem);
+      expect(llm.reviewUpdatePromptProblem(value)).toBe(problem);
     }
   });
 
@@ -335,6 +347,7 @@ describe('owner instruction rule parity (#567, #579)', () => {
       for (const value of [String.fromCharCode(unit), 'a' + String.fromCharCode(unit)]) {
         if (llm.isDraftingPrompt(value) !== isDraftingPrompt(value)) disagreements.push('drafting ' + JSON.stringify(value));
         if (llm.isTranslationPrompt(value) !== isTranslationPrompt(value)) disagreements.push('translation ' + JSON.stringify(value));
+        if (llm.isReviewUpdatePrompt(value) !== isReviewUpdatePrompt(value)) disagreements.push('review update ' + JSON.stringify(value));
       }
     }
     expect(disagreements).toEqual([]);
