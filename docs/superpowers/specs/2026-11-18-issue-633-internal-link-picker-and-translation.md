@@ -1,6 +1,6 @@
 # Issue #633 — internal link picker and DE↔EN internal link mapping
 
-Status: **revision 18** (PR-review resolution; independent PR re-review pending). Issue:
+Status: **revision 18** (PR-review resolution, independently re-approved; unmerged). Issue:
 [#633](https://github.com/laboef1900/wanderlust-studio/issues/633). Branch
 `feature/issue-633-internal-links`, base `origin/dev`
 (`a4af2c3177d71186625355617a7a5352b6ee62d5`).
@@ -891,3 +891,8 @@ no longer maps a double-slash path to its single-slash key; the raw-HTML warning
 protocol-relative `href="//…"`; whitespace-separated empty titles are retargetable;
 malformed published slugs are skipped instead of throwing; and the analyzer route tests
 assert `no-store` and the 1 MiB → 413 refusal.
+
+The independent re-review of `367c543` (Orca dispatch `ctx_d3b3fef637dc`, model
+`deepseek/deepseek-flash`) returned **APPROVE**: all five findings resolved and no new
+blocking regression. It re-ran the analyzer (10), catalog+dialog (15) and internal-link
+route (2) suites and `tsc --noEmit`; the pg suite is CI-authoritative and passed there.
