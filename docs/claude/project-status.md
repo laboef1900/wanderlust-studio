@@ -4,6 +4,26 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Implemented (issue #630, 2026-11-18): Story review practical details and article update.**
+  Story review opens as a centered modal and reports image alt-text findings in a new
+  required `altText` section instead of `practicalDetails` (`EDITORIAL_REVIEW_SCHEMA` in
+  `uploader/src/editorial-review.ts`, mirrored in `uploader/public/llm.js`; `LLM.reviewStory`
+  appends the code-owned schema and routing rule after any review prompt). A review prompt
+  still byte-identical to a pre-#630 default is upgraded in memory on load
+  (`PRE_630_REVIEW_PROMPT`, `PRE_630_LEGACY_REVIEW_PROMPT`); customised prompts are kept. The
+  author can answer the missing practical details and send them with the active-language draft
+  to the Story review provider (`LLM.updateArticlePracticalDetails`: one strict request, no
+  fallback or retry), review a line diff and plain-text preview, and explicitly Apply or Undo
+  the body change. Output must be exactly `{"markdown":"…"}` and keep every fence, gallery,
+  heading, link, image, reference definition, HTML and escape (`hasPreservedStructure`,
+  covered by a renderer-backed differential test). New setting `reviewUpdatePrompt`
+  (`/settings`, default `/ai-config`). All dialog copy is in `site/src/i18n/ui.ts`. No schema,
+  route path or data change. Rollback: any settings save after #630 persists the upgraded
+  review prompt; after a rollback delete `reviewPrompt` from `settings.json` or restore the
+  pre-upgrade file (`SECURITY.md`). High-risk design approved by an independent AI reviewer
+  under a scoped, recorded exception. See
+  `docs/superpowers/specs/2026-11-18-issue-630-story-review-practical-update.md`.
+
 - **Security hardening (issue #622, 2026-11-17): CodeQL warning-level findings.** The eleven
   `warning`-level code-scanning alerts in production code are fixed. The WordPress importer
   escapes backslashes (and `<`/`>` in angle form) in degraded inline-image destinations, and

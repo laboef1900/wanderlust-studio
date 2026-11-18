@@ -1,5 +1,5 @@
 import type { Identity } from '../../site/src/lib/site-identity.js';
-import { DEFAULT_REVIEW_PROMPT } from './editorial-review.js';
+import { DEFAULT_REVIEW_PROMPT, PRE_630_REVIEW_PROMPT } from './editorial-review.js';
 
 /** @ai-warning Owner-install upgrade/old-dump seed only, NEVER a fresh-install default. See identity spec §12.2. */
 export const LEGACY_IDENTITY: Identity = {
@@ -12,4 +12,7 @@ export const LEGACY_IDENTITY: Identity = {
   studioDescriptor: { de: 'Simons Reisetagebuch', en: 'Simon’s travel journal' },
   socialLinks: [{ label: 'Instagram', url: 'https://www.instagram.com/simonswanderlust' }],
 };
-export const LEGACY_REVIEW_PROMPT = "You are an editorial and SEO reviewer for Simon's Wanderlust, a personal travel blog.\n" + DEFAULT_REVIEW_PROMPT.slice(DEFAULT_REVIEW_PROMPT.indexOf('\n') + 1);
+const LEGACY_REVIEW_HEAD = "You are an editorial and SEO reviewer for Simon's Wanderlust, a personal travel blog.\n";
+export const LEGACY_REVIEW_PROMPT = LEGACY_REVIEW_HEAD + DEFAULT_REVIEW_PROMPT.slice(DEFAULT_REVIEW_PROMPT.indexOf('\n') + 1);
+/** #630: the exact legacy review prompt before `altText`; settings.ts upgrades it in memory, byte-identical only. */
+export const PRE_630_LEGACY_REVIEW_PROMPT = LEGACY_REVIEW_HEAD + PRE_630_REVIEW_PROMPT.slice(PRE_630_REVIEW_PROMPT.indexOf('\n') + 1);

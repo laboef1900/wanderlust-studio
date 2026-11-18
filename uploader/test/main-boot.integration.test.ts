@@ -20,6 +20,7 @@ import sharp from 'sharp';
 import { createSettingsStore, defaultSettings } from '../src/settings.js';
 import { DEFAULT_TRANSLATION_PROMPT } from '../src/translation-prompt.js';
 import { DEFAULT_DRAFTING_PROMPT } from '../src/drafting-prompt.js';
+import { DEFAULT_REVIEW_UPDATE_PROMPT } from '../src/editorial-review.js';
 
 import { seedSiteIdentity, type IdentityRecord } from '../src/site-identity.js';
 const url = process.env.TEST_DATABASE_URL;
@@ -497,6 +498,8 @@ maybe.each(['split', 'loopback'] as const)('production boot (src/main.ts, Postgr
       // #579: likewise the drafting defaults, following the default provider.
       draftingProviderId: null, draftingModel: 'qwen2.5-7b-instruct', draftingTimeoutMs: 120000,
       draftingPrompt: DEFAULT_DRAFTING_PROMPT,
+      // #630: likewise the practical-details update instructions.
+      reviewUpdatePrompt: DEFAULT_REVIEW_UPDATE_PROMPT,
     });
     expect(saved).not.toHaveProperty('aiProvider');
     expect(JSON.parse(await readFile(`${settingsPath}.pre-ai-registry`, 'utf8'))).toMatchObject({ aiProvider: 'openrouter' });
@@ -513,6 +516,7 @@ maybe.each(['split', 'loopback'] as const)('production boot (src/main.ts, Postgr
     expect(review.status).toBe(200);
     expect(await review.json()).toMatchObject({
       aiProvider: 'openrouter', aiBaseUrl: 'https://openrouter.ai/api/v1', hasAiApiKey: true, aiApiKey: 'boot-legacy-fixture',
+      reviewUpdatePrompt: DEFAULT_REVIEW_UPDATE_PROMPT,
     });
     const caption = await fetch(`${base}/ai-config?purpose=caption`, { headers: { cookie } });
     expect(await caption.json()).toMatchObject({ captionProvider: 'lm-studio', captionApiKey: null });
@@ -659,4 +663,40 @@ maybe.each(['split', 'loopback'] as const)('production boot (src/main.ts, Postgr
       expect(await pgSecretsStore(pool, encryptionKey).get(`ai_provider_key:${providerId}`)).toBeNull();
     }
   });
+
+  it('#630: saves the practical-details update instructions and hands them to the review purpose only', async () => {
+    const login = await fetch(`${base}/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ username, password }),
+    });
+    expect(login.status).toBe(200);
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const headers = { 'content-type': 'application/json', origin: base, cookie };
+    const before = createSettingsStore({ path: settingsPath, defaults: defaultSettings() }).get();
+    try {
+      const current = await (await fetch(`${base}/settings`, { headers: { cookie } })).json();
+      expect(current).toMatchObject({ reviewUpdatePrompt: before.reviewUpdatePrompt, reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT });
+      const refused = await fetch(`${base}/settings`, { method: 'POST', headers, body: JSON.stringify({ reviewUpdatePrompt: 'Boot update.\u0000' }) });
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({
+        error: 'Practical-details update instructions are required and must be visible plain text of at most 4000 characters.',
+      });
+      const prompt = 'Boot update style:\nkeep my voice.';
+      const saved = await fetch(`${base}/settings`, { method: 'POST', headers, body: JSON.stringify({ reviewUpdatePrompt: prompt }) });
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toMatchObject({ reviewUpdatePrompt: prompt, reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT });
+      const reloaded = createSettingsStore({ path: settingsPath, defaults: defaultSettings() }).get();
+      expect(reloaded).toMatchObject({ reviewUpdatePrompt: prompt, reviewPrompt: before.reviewPrompt, aiModel: before.aiModel });
+      expect(await (await fetch(`${base}/ai-config`, { headers: { cookie } })).json()).toMatchObject({ reviewUpdatePrompt: prompt });
+      for (const purpose of ['translation', 'drafting', 'caption']) {
+        expect(await (await fetch(`${base}/ai-config?purpose=${purpose}`, { headers: { cookie } })).text()).not.toContain('Boot update style');
+      }
+    } finally {
+      const restored = await fetch(`${base}/settings`, { method: 'POST', headers, body: JSON.stringify({
+        reviewUpdatePrompt: before.reviewUpdatePrompt,
+      }) });
+      expect(restored.status).toBe(200);
+    }
+  });
+
 });

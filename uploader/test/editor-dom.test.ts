@@ -64,6 +64,15 @@ interface ReviewStory {
 }
 
 type Review = (baseUrl: string, model: string, prompt: string, story: ReviewStory, apiKey: string | null, timeoutMs: number, signal: AbortSignal) => Promise<EditorialReviewResult>;
+/** What editor-review.js passes to LLM.updateArticlePracticalDetails. */
+interface UpdateRequest {
+  baseUrl: string; model: string; prompt: string;
+  story: { locale: 'de' | 'en'; title: string; excerpt: string; markdown: string };
+  practicalDetails: { aspect: string; answer: string }[];
+  additionalNotes?: string;
+  apiKey: string | null; timeoutMs: number; signal: AbortSignal;
+}
+type Update = (request: UpdateRequest) => Promise<{ markdown: string }>;
 type Fetch = (url: string, options?: RequestInit) => Promise<Response>;
 interface TranslationRequest {
   baseUrl: string; model: string; apiKey: string | null; timeoutMs: number;
@@ -93,6 +102,8 @@ interface EditorOptions {
   storage?: Map<string, string>;
   galleryFetch?: Fetch;
   review?: Review;
+  /** LLM.updateArticlePracticalDetails; default: the real browser transport against `fetch`. */
+  update?: Update;
   translate?: (request: TranslationRequest) => Promise<TranslationOutput>;
   /** LLM.draftArticle; default: the real browser transport against `fetch`. */
   draft?: (request: DraftRequest) => Promise<DraftOutput>;
@@ -588,6 +599,7 @@ async function loadEditor(options: EditorOptions = {}) {
     runBrowserScript(file, ctx);
   }
   if (options.review) (ctx.LLM as { reviewStory: Review }).reviewStory = options.review;
+  if (options.update && ctx.LLM && typeof ctx.LLM === 'object') Reflect.set(ctx.LLM, 'updateArticlePracticalDetails', options.update);
   if (options.translate && ctx.LLM && typeof ctx.LLM === 'object') Reflect.set(ctx.LLM, 'translateArticle', options.translate);
   if (options.draft && ctx.LLM && typeof ctx.LLM === 'object') Reflect.set(ctx.LLM, 'draftArticle', options.draft);
   options.beforeModule?.(ctx);
@@ -3096,7 +3108,8 @@ describe('editor.html inline script against its own markup', () => {
 
 const reviewConfig = {
   aiProvider: 'custom', aiBaseUrl: 'https://review.invalid/v1', aiModel: 'fixture-model',
-  reviewPrompt: 'Review this fictional travel draft.', reviewTimeoutMs: 60000, aiApiKey: null,
+  reviewPrompt: 'Review this fictional travel draft.', reviewUpdatePrompt: 'Integrate the author’s factual answers into the story.',
+  reviewTimeoutMs: 60000, aiApiKey: null,
 };
 const providerUrl = reviewConfig.aiBaseUrl + '/chat/completions';
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -3108,6 +3121,7 @@ function reviewResult(title = 'Four days exploring Bucharest'): EditorialReviewR
     excerpt: { status: 'warn', critique: 'Summarise the route.', suggestedExcerpt: 'A four-day walk through Bucharest, with a tram ride, old streets and practical notes from the trip.' },
     headings: { status: 'pass', critique: 'The route has a clear reading order.' },
     practicalDetails: { status: 'warn', critique: 'Explain the tram ticket.', missingAspects: ['Where the ticket was purchased'] },
+    altText: { status: 'warn', critique: 'Describe the tram photo.', missingImages: ['https://img.invalid/tram'] },
     internalLinks: { status: 'info', linkOpportunities: ['An existing story about a nearby trip, if relevant'] },
   };
 }
@@ -3136,6 +3150,18 @@ function deferredReviews() {
   return { calls, review };
 }
 
+// Models a provider that ignores cancellation: the update request is held until
+// the test resolves/rejects it, so arrival and Apply races can be exercised.
+function deferredUpdates() {
+  const calls: { request: UpdateRequest; result: PromiseWithResolvers<{ markdown: string }> }[] = [];
+  const update: Update = (request) => {
+    const result = Promise.withResolvers<{ markdown: string }>();
+    calls.push({ request, result });
+    return result.promise;
+  };
+  return { calls, update };
+}
+
 function required(root: Element, selector: string): Element {
   const node = root.querySelector(selector);
   if (!node) throw new Error('Missing editor control: ' + selector);
@@ -3148,6 +3174,23 @@ async function startAiReview(h: ReviewControls) {
   await settle();
   h.el('runReview').click();
   await settle();
+}
+
+// #630 update controls live inside the practical-details card.
+function updateCard(h: ReviewControls): Element {
+  return required(h.el('reviewSemantic'), '[data-review-criterion="practicalDetails"]');
+}
+function answerInputs(h: ReviewControls): Element[] {
+  return updateCard(h).querySelectorAll('.review-answer__input');
+}
+function notesInput(h: ReviewControls): Element {
+  return required(updateCard(h), '.review-notes__input');
+}
+function updateButton(h: ReviewControls): Element {
+  return required(updateCard(h), '[data-review-action="updateArticle"]');
+}
+function updateStatus(h: ReviewControls): Element {
+  return required(updateCard(h), '.review-update__status');
 }
 
 describe('Story review in the real editor', () => {
@@ -3540,6 +3583,8 @@ describe('Story review in the real editor', () => {
     result.headings.critique = hostile;
     result.practicalDetails.critique = hostile;
     result.practicalDetails.missingAspects = [hostile];
+    result.altText.critique = hostile;
+    result.altText.missingImages = [hostile];
     result.internalLinks.linkOpportunities = [hostile];
     const h = await loadEditor({ fetch: reviewNetwork(async () => completion(result)) });
     await startAiReview(h);
@@ -3729,6 +3774,332 @@ describe('Story review in the real editor', () => {
     expect(h.el('storyReviewDialog').open).toBe(false);
     expect(h.el('reviewSemantic').querySelector('[data-review-action]')).toBeNull();
     expect(h.api.buildPayload()).toEqual(nextPayload);
+  });
+
+  it('renders a separate Alt text card, never mixing its findings into practical details', async () => {
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())) });
+    await startAiReview(h);
+    const card = required(h.el('reviewSemantic'), '[data-review-criterion="altText"]');
+    expect(card.textContent).toContain(reviewResult().altText.critique);
+    expect(card.textContent).toContain(reviewResult().altText.missingImages![0]);
+    expect(card.textContent).toContain('Warning');
+    expect(card.querySelectorAll('.review-answer__input')).toEqual([]);
+    expect(required(h.el('reviewSemantic'), '[data-review-criterion="practicalDetails"]').textContent)
+      .not.toContain(reviewResult().altText.missingImages![0]);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('renders no answer inputs or update controls when there are no missing practical details', async () => {
+    const empty = reviewResult();
+    empty.practicalDetails.status = 'pass';
+    empty.practicalDetails.missingAspects = [];
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(empty)) });
+    await startAiReview(h);
+    expect(h.el('reviewSemantic').querySelectorAll('.review-answer__input')).toEqual([]);
+    expect(h.el('reviewSemantic').querySelector('[data-review-action="updateArticle"]')).toBeNull();
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('renders labelled answers, optional notes, a disclosure and update controls for missing details', async () => {
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())) });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    const card = updateCard(h);
+    const input = answerInputs(h)[0]!;
+    expect(input.getAttribute('maxlength')).toBe('2000');
+    expect(card.querySelectorAll('.review-answer__label')[0]!.textContent)
+      .toBe(reviewResult().practicalDetails.missingAspects[0]);
+    expect(notesInput(h).getAttribute('maxlength')).toBe('4000');
+    const disclosure = required(card, '.review-update__disclosure');
+    expect(disclosure.textContent).toContain(reviewConfig.aiBaseUrl);
+    expect(disclosure.textContent).toContain(reviewConfig.aiModel);
+    expect(updateButton(h).disabled).toBe(true);
+    expect(required(card, '[data-review-action="cancelUpdate"]').hidden).toBe(true);
+    expect(updateStatus(h).textContent).toMatch(/answer/i);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('typing answers and notes neither marks the draft dirty nor closes the review', async () => {
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: deferredUpdates().update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    const dirtyBefore = h.dirtyCalls();
+    answerInputs(h)[0]!.value = 'From the main station';
+    answerInputs(h)[0]!.fire('input');
+    expect(h.el('storyReviewDialog').open).toBe(true);
+    expect(h.dirtyCalls()).toBe(dirtyBefore);
+    notesInput(h).value = 'Also carry cash';
+    notesInput(h).fire('input');
+    expect(h.el('storyReviewDialog').open).toBe(true);
+    expect(h.dirtyCalls()).toBe(dirtyBefore);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('filters blank answers and can update from notes alone', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = '   ';
+    answerInputs(h)[0]!.fire('input');
+    expect(updateButton(h).disabled).toBe(true);
+    notesInput(h).value = 'Notes only';
+    notesInput(h).fire('input');
+    expect(updateButton(h).disabled).toBe(false);
+    updateButton(h).click();
+    await settle();
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]!.request.practicalDetails).toEqual([]);
+    expect(provider.calls[0]!.request.additionalNotes).toBe('Notes only');
+    expect(provider.calls[0]!.request.story.markdown).toBe('## Hi');
+  });
+
+  it.each([
+    { name: 'blank', body: '', marker: 'empty' },
+    { name: 'over-long', body: '## Big\n\n' + 'x'.repeat(100_001), marker: '100000' },
+  ])('keeps Update disabled with an explanation for a $name body', async ({ body, marker }) => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    h.editors[0]!.value(body);
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'An answer';
+    answerInputs(h)[0]!.fire('input');
+    expect(updateButton(h).disabled).toBe(true);
+    expect(updateStatus(h).textContent).toContain(marker);
+    expect(provider.calls).toEqual([]);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it.each(['aiBaseUrl', 'aiModel', 'reviewPrompt', 'reviewUpdatePrompt', 'reviewTimeoutMs'] as const)(
+    'requires new consent for the article update when the disclosed %s changes', async (field) => {
+      const provider = deferredUpdates();
+      let reads = 0;
+      const changed = { ...reviewConfig, [field]: field === 'aiBaseUrl' ? 'https://changed.invalid/v1' : field === 'reviewTimeoutMs' ? 30000 : 'changed-value' };
+      const h = await loadEditor({
+        update: provider.update,
+        fetch: async (url) => {
+          if (url === '/ai-config') { reads += 1; return response(reads <= 2 ? reviewConfig : changed); }
+          if (url === providerUrl) return completion(reviewResult());
+          throw new Error('unexpected ' + url);
+        },
+      });
+      h.api.populateForm(fullPair());
+      await startAiReview(h);
+      answerInputs(h)[0]!.value = 'An answer';
+      answerInputs(h)[0]!.fire('input');
+      updateButton(h).click();
+      await settle();
+      expect(provider.calls).toEqual([]);
+      expect(updateStatus(h).textContent).toMatch(/again/i);
+      updateButton(h).click();
+      await settle();
+      expect(provider.calls).toHaveLength(1);
+    });
+
+  it('cancelling an update keeps the dialog, answers and notes intact and re-enables update', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'An answer';
+    answerInputs(h)[0]!.fire('input');
+    notesInput(h).value = 'A note';
+    notesInput(h).fire('input');
+    updateButton(h).click();
+    await settle();
+    expect(provider.calls).toHaveLength(1);
+    const cancel = required(updateCard(h), '[data-review-action="cancelUpdate"]');
+    expect(cancel.hidden).toBe(false);
+    cancel.click();
+    await settle();
+    expect(h.el('storyReviewDialog').open).toBe(true);
+    expect(answerInputs(h)[0]!.value).toBe('An answer');
+    expect(notesInput(h).value).toBe('A note');
+    expect(updateStatus(h).textContent).toMatch(/cancelled/i);
+    expect(updateButton(h).disabled).toBe(false);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it.each([
+    { name: 'timeout', reject: () => Object.assign(new Error('Article update timed out'), { name: 'TimeoutError' }), marker: 'too long' },
+    { name: 'structural rejection', reject: () => new Error('Article update changed protected structure'), marker: 'protected' },
+  ])('preserves answers and notes after $name without leaking the draft', async ({ reject, marker }) => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'An answer';
+    answerInputs(h)[0]!.fire('input');
+    notesInput(h).value = 'A note';
+    notesInput(h).fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.reject(reject());
+    await settle();
+    expect(answerInputs(h)[0]!.value).toBe('An answer');
+    expect(notesInput(h).value).toBe('A note');
+    expect(updateStatus(h).textContent).toContain(marker);
+    expect(updateStatus(h).textContent).not.toContain('## Hi');
+    expect(updateButton(h).disabled).toBe(false);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('redirects to login and discards the review when the update hits a 401', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'An answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.reject(new Error('Article update HTTP 401'));
+    await settle();
+    expect(h.redirects()).toBe(1);
+    expect(h.el('storyReviewDialog').open).toBe(false);
+    h.flushDialogEvents();
+  });
+
+  it('discards a stale update result when the draft changes while the update runs', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'An answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    expect(provider.calls).toHaveLength(1);
+    h.editors[0]!.value('## New author prose\n\nEdited while updating.');
+    await settle();
+    provider.calls[0]!.result.resolve({ markdown: '## New author prose\n\nEdited while updating.\n\nNew detail' });
+    await settle();
+    h.flushDialogEvents();
+    expect(h.el('storyReviewDialog').open).toBe(false);
+    expect(h.el('reviewSemantic').querySelector('.review-update-preview__body')).toBeNull();
+    expect(h.editors[0]!.value()).toBe('## New author prose\n\nEdited while updating.');
+  });
+
+  it('shows no Apply button when the model returns the article unchanged', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'An answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.resolve({ markdown: '## Hi' });
+    await settle();
+    expect(h.el('reviewSemantic').querySelector('[data-review-action="applyMarkdown"]')).toBeNull();
+    expect(updateStatus(h).textContent).toMatch(/unchanged|nothing/i);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('renders model markup as literal text in the diff and preview, with a shrink warning when text is removed', async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'Answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.resolve({ markdown: hostile + '\n\nShorter.' });
+    await settle();
+    const preview = required(updateCard(h), '.review-update-preview__body');
+    expect(preview.value).toBe(hostile + '\n\nShorter.');
+    expect(updateCard(h).querySelectorAll('img, script, [onerror]')).toEqual([]);
+    const diff = required(updateCard(h), '.review-update-diff');
+    expect(diff.textContent).toContain(hostile);
+    expect(diff.querySelector('img')).toBeNull();
+    expect(updateCard(h).querySelector('.review-update-diff__warning')).not.toBeNull();
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('applies only the active-locale body, leaving title, excerpt, slug, images and the other locale untouched', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    const before = h.api.buildPayload();
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'Answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.resolve({ markdown: '## Hi\n\nA new practical paragraph.' });
+    await settle();
+    const apply = required(updateCard(h), '[data-review-action="applyMarkdown"]');
+    apply.click();
+    await settle();
+    const after = h.api.buildPayload();
+    expect(after.de.bodyMarkdown).toBe('## Hi\n\nA new practical paragraph.');
+    expect(after.en).toEqual(before.en);
+    expect(after.de.title).toBe(before.de.title);
+    expect(after.de.excerpt).toBe(before.de.excerpt);
+    expect(after.de.slug).toBe(before.de.slug);
+    expect(after.de.images).toEqual(before.de.images);
+    expect(after.shared).toEqual(before.shared);
+    expect(apply.disabled).toBe(true);
+    expect(apply.textContent).toMatch(/applied/i);
+    expect(updateCard(h).querySelector('[data-review-action="undoMarkdown"]')).not.toBeNull();
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('applies an updated body even after a title suggestion was applied independently', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    await startAiReview(h);
+    required(h.el('reviewSemantic'), '[data-review-action="title"]').click();
+    answerInputs(h)[0]!.value = 'Answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.resolve({ markdown: '## Hi\n\nA new practical paragraph.' });
+    await settle();
+    required(updateCard(h), '[data-review-action="applyMarkdown"]').click();
+    await settle();
+    expect(h.api.buildPayload().de.bodyMarkdown).toBe('## Hi\n\nA new practical paragraph.');
+    expect(h.api.buildPayload().de.title).toBe(reviewResult().title.suggestions![0]);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
+  });
+
+  it('undoes an applied update and restores the original body', async () => {
+    const provider = deferredUpdates();
+    const h = await loadEditor({ fetch: reviewNetwork(async () => completion(reviewResult())), update: provider.update });
+    h.api.populateForm(fullPair());
+    const before = h.api.buildPayload().de.bodyMarkdown;
+    await startAiReview(h);
+    answerInputs(h)[0]!.value = 'Answer';
+    answerInputs(h)[0]!.fire('input');
+    updateButton(h).click();
+    await settle();
+    provider.calls[0]!.result.resolve({ markdown: '## Hi\n\nA new practical paragraph.' });
+    await settle();
+    required(updateCard(h), '[data-review-action="applyMarkdown"]').click();
+    await settle();
+    const undo = required(updateCard(h), '[data-review-action="undoMarkdown"]');
+    undo.click();
+    await settle();
+    expect(h.api.buildPayload().de.bodyMarkdown).toBe(before);
+    expect(undo.disabled).toBe(true);
+    expect(updateStatus(h).textContent).toMatch(/undo|back/i);
+    h.el('closeReview').click();
+    h.flushDialogEvents();
   });
 });
 
