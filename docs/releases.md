@@ -6,8 +6,11 @@ Historical release notes follow. They record release-specific changes, not a pro
 
 ### Cutting a release
 
-**v0.26.0 — gallery EXIF lightbox, draft navigation guard, security hardening** (linux/amd64 and linux/arm64,
-`ghcr.io/laboef1900/wanderlust-studio:0.26.0`). Changes since v0.25.0 (PRs #591–#606, #624, #625, #627):
+**v0.26.1 — gallery EXIF lightbox, draft navigation guard, security hardening** (linux/amd64 and linux/arm64,
+`ghcr.io/laboef1900/wanderlust-studio:0.26.1`). The `v0.26.0` tag's release workflow failed before
+publishing (`check-image-legal.mjs` passed `--platform` to `docker image inspect`, which the runner
+Docker CLI rejects): there is no `v0.26.0` image or GitHub Release. Changes since v0.25.0 (PRs
+#591–#606, #624, #625, #627, #628, and the legal-check fix):
 
 - **Gallery lightbox EXIF** (#606): displays camera and exposure metadata (focal length, aperture, shutter
   speed, ISO) in the public gallery lightbox, backed by the existing `media` exposure columns.
@@ -18,12 +21,13 @@ Historical release notes follow. They record release-specific changes, not a pro
   containment, linear-time markdown/gallery parsing, explicit JSON content types on translation routes,
   URL-scheme checks on editor/settings previews, and rate limiting on GPX and backup download routes.
 - **CI, docs & dependencies** (#591–#600, #602–#604): Astro 7.4.12, `entities` 9.0.0, Vitest 5.1.0,
-  `@fastify/rate-limit`, refreshed `README.md` / `docs/releases.md`, and Playwright / native CI checks.
+  `@fastify/rate-limit`, refreshed `README.md` / `docs/releases.md`, Playwright / native CI checks, and
+  fixing `check-image-legal.mjs` to resolve the platform image via `docker create` + `docker container inspect`.
 
-Upgrade notes for v0.25.0 → v0.26.0 (the [release recovery checklist](../ARCHITECTURE.md#release-recovery-checklist)):
+Upgrade notes for v0.25.0 → v0.26.1 (the [release recovery checklist](../ARCHITECTURE.md#release-recovery-checklist)):
 
-- **Image and deployment:** apply this release's image tag (`0.26.0`). Both `site/` and `uploader/`
-  package manifests are updated to `0.26.0` (from `0.24.0`, as `v0.25.0` did not bump them).
+- **Image and deployment:** apply this release's image tag (`0.26.1`). Both `site/` and `uploader/`
+  package manifests are updated to `0.26.1` (from `0.24.0`, as `v0.25.0` did not bump them).
 - **Schema and settings:** no schema, constraint, data, or settings migrations.
 - **Dumps:** writer stays **v15**; reads v1–v15 (`v1–v9` cannot supply private GPX routes).
 - **Compose and `.env`:** no changes.
