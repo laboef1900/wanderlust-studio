@@ -6930,8 +6930,26 @@ describe('internal link endpoints', () => {
         payload: { bodyMarkdown: '[x](/a/ "T")', from: 1, to: 2 },
       });
       expect(link.statusCode).toBe(200);
+      expect(link.headers['cache-control']).toBe('no-store');
       expect(link.json()).toMatchObject({ kind: 'link', link: { url: '/a/', removalSafe: true } });
       expect(link.json().link.destinationStart).toBe(4);
+      for (const [bodyMarkdown, from, to] of [
+        ['one\ntwo', 0, 7],
+        ['one\r\ntwo', 0, 8],
+        ['- one\n  two', 2, 9],
+        ['https://e.test/', 0, 8],
+      ] as const) {
+        const refused = await b.app.inject({
+          method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+          payload: { bodyMarkdown, from, to },
+        });
+        expect(refused.json()).toEqual({ kind: 'other' });
+      }
+      const tooLarge = await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+        payload: { bodyMarkdown: 'x'.repeat(1_048_577), from: 0, to: 1 },
+      });
+      expect(tooLarge.statusCode).toBe(413);
       const text = await b.app.inject({
         method: 'POST', url: '/internal-links/analyze', cookies: cookie,
         payload: { bodyMarkdown: 'Hallo Welt', from: 0, to: 5 },

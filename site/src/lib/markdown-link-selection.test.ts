@@ -127,6 +127,21 @@ describe('Markdown link selection analysis', () => {
     }
   });
 
+  it('refuses selections that cross a softbreak or CRLF boundary', () => {
+    expect(analyzeLinkSelection('one\ntwo', 0, 7)).toEqual({ kind: 'other' });
+    expect(analyzeLinkSelection('one\r\ntwo', 0, 8)).toEqual({ kind: 'other' });
+    expect(analyzeLinkSelection('one\ntwo', 0, 3)).toMatchObject({ kind: 'text' });
+    expect(analyzeLinkSelection('one\r\ntwo', 0, 3)).toMatchObject({ kind: 'text' });
+  });
+
+  it('retargets a link with an empty title', () => {
+    const result = analyzeLinkSelection('[x](/a "")', 1, 2);
+    expect(result.kind).toBe('link');
+    if (result.kind !== 'link') return;
+    expect(result.link.destinationStart).toBe(4);
+    expect(result.link.destinationEnd).toBe(6);
+  });
+
   it('rejects invalid offsets', () => {
     expect(analyzeLinkSelection('abc', -1, 2)).toEqual({ kind: 'other' });
     expect(analyzeLinkSelection('abc', 1, 1)).toEqual({ kind: 'other' });

@@ -97,7 +97,14 @@ export function linkRanges(node: Node, source: string): Omit<LinkRanges, 'remova
   if (source[close + 1] !== '(') return fail();
   let start = close + 2;
   while (source[start] === ' ' || source[start] === '\t') start++;
-  const title = node.title ? markdownTitle(source, range, String(node.title)) : null;
+  let title = node.title !== null && node.title !== undefined
+    ? markdownTitle(source, range, String(node.title)) : null;
+  if (title === null && (node.title === null || node.title === undefined)) {
+    try {
+      const empty = markdownTitle(source, range, '');
+      if (empty && /\s/u.test(source[empty.start - 2] ?? '')) title = empty;
+    } catch { /* no empty title */ }
+  }
   let end = title ? title.start - 1 : range.end - 1;
   while (end > start && (source[end - 1] === ' ' || source[end - 1] === '\t')) end--;
   if (end <= start) return fail();
@@ -203,6 +210,7 @@ function containersFor(parents: Node[]): SourceContainer[] {
 export function selectedLabel(node: Node, body: string, from: number, to: number, parents: Node[]): string {
   const range = rangeOf(node, body);
   if (from < range.start || to > range.end || from >= to) return fail();
+  if (/[\r\n]/u.test(body.slice(from, to))) return fail();
   const value = (node.value ?? '').replace(/\r\n?/gu, '\n');
   const units = positionedText(value, body, range.start, range.end, containersFor(parents));
   const intersected = units.filter((unit: Unit) => unit.end > from && unit.start < to);

@@ -55,6 +55,8 @@ window.InternalLinkDialog = (function () {
     const catalogs = new Map();
     const pending = new Map();
     let dialog = null;
+    let validator = () => '';
+    let acceptCurrent = () => true;
 
     function load(locale) {
       if (catalogs.has(locale)) return Promise.resolve(catalogs.get(locale));
@@ -108,6 +110,40 @@ window.InternalLinkDialog = (function () {
         '</form>';
       document.body.appendChild(element);
       dialog = element;
+
+      const input = element.querySelector('#internalLinkText');
+      const select = element.querySelector('#internalLinkTarget');
+      const error = element.querySelector('#internalLinkError');
+      acceptCurrent = () => {
+        const message = refusal(input.value.trim(), validator);
+        error.textContent = message;
+        error.hidden = !message;
+        if (message) { input.setAttribute('aria-invalid', 'true'); input.focus(); return false; }
+        input.removeAttribute('aria-invalid');
+        return true;
+      };
+      select.addEventListener('change', () => {
+        if (select.value) { input.value = select.value; input.focus(); }
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        if (!acceptCurrent()) return;
+        element.returnValue = 'ok';
+        element.close();
+      });
+      select.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        if (!acceptCurrent()) return;
+        element.returnValue = 'ok';
+        element.close();
+      });
+      input.addEventListener('input', () => {
+        error.hidden = true;
+        error.textContent = '';
+        input.removeAttribute('aria-invalid');
+      });
       return element;
     }
 
@@ -160,10 +196,15 @@ window.InternalLinkDialog = (function () {
       return extraValidate ? extraValidate(value) : '';
     }
 
+    function escapedDestinationError(value) {
+      return value && !isEscapedDestination(escapeDestination(value)) ? copy.richLinkInvalid : '';
+    }
+
     function open(details) {
       const current = details.current || '';
       const locale = details.locale;
       const extraValidate = details.extraValidate;
+      validator = extraValidate || (() => '');
       const element = ensure();
       if (!element) return fallbackPrompt(current, extraValidate);
 
@@ -185,6 +226,7 @@ window.InternalLinkDialog = (function () {
       ok.textContent = copy.richLinkConfirm;
       cancel.textContent = copy.linkCancel;
       input.value = current;
+      input.removeAttribute('aria-invalid');
       error.hidden = true;
       error.textContent = '';
       status.textContent = copy.linkTargetLoading;
@@ -195,32 +237,7 @@ window.InternalLinkDialog = (function () {
       select.appendChild(custom);
       select.disabled = true;
 
-      function accept() {
-        const message = refusal(input.value.trim(), extraValidate);
-        error.textContent = message;
-        error.hidden = !message;
-        if (message) { input.setAttribute('aria-invalid', 'true'); input.focus(); return false; }
-        input.removeAttribute('aria-invalid');
-        return true;
-      }
-      select.addEventListener('change', () => {
-        if (select.value) { input.value = select.value; input.focus(); }
-      });
-      input.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' || event.isComposing) return;
-        event.preventDefault();
-        if (!accept()) return;
-        element.returnValue = 'ok';
-        element.close();
-      });
-      select.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' || event.isComposing) return;
-        event.preventDefault();
-        if (!accept()) return;
-        element.returnValue = 'ok';
-        element.close();
-      });
-      const onOk = (event) => { if (!accept()) event.preventDefault(); };
+      const onOk = (event) => { if (!acceptCurrent()) event.preventDefault(); };
       ok.addEventListener('click', onOk);
 
       load(locale).then((catalog) => {
@@ -262,7 +279,7 @@ window.InternalLinkDialog = (function () {
         if (result.kind === 'link') {
           const link = result.link;
           if (!link) { notice?.(copy.linkEditInSource); return; }
-          const value = await open({ current: link.url, locale });
+          const value = await open({ current: link.url, locale, extraValidate: escapedDestinationError });
           if (value === null || value === link.url) return;
           const destination = value === '' ? '' : escapeDestination(value);
           if (value !== '' && (refusal(value) || !isEscapedDestination(destination))) { notice?.(copy.linkEditInSource); return; }
@@ -276,7 +293,7 @@ window.InternalLinkDialog = (function () {
           return;
         }
         if (result.kind === 'text' && typeof result.label === 'string') {
-          const value = await open({ current: '', locale });
+          const value = await open({ current: '', locale, extraValidate: escapedDestinationError });
           if (!value) return;
           const destination = escapeDestination(value);
           if (refusal(value) || !isEscapedDestination(destination)) { notice?.(copy.linkEditInSource); return; }

@@ -103,7 +103,10 @@ function mappedLink(url: string, map: Map<string, string>): { url: string; inter
   const cut = url.search(/[?#]/);
   const path = cut < 0 ? url : url.slice(0, cut);
   const suffix = cut < 0 ? '' : url.slice(cut);
-  const candidates = path === '/' ? ['/'] : path.endsWith('/') ? [path, path.slice(0, -1)] : [path, `${path}/`];
+  const candidates = path === '/' ? ['/']
+    : path.endsWith('//') ? [path]
+      : path.endsWith('/') ? [path, path.slice(0, -1)]
+        : [path, `${path}/`];
   const to = candidates.map((candidate) => map.get(candidate)).find((candidate) => candidate !== undefined);
   return to === undefined ? { url, internal: true, mapped: false } : { url: to + suffix, internal: true, mapped: true };
 }
@@ -533,7 +536,7 @@ async function createPlan(input: TranslationInput): Promise<Plan> {
           remap(ranges.url, ranges.destinationStart, ranges.destinationEnd);
         } catch { warnings.add('internal-links-retained'); }
       } else if (node.type === 'html' && typeof node.value === 'string'
-        && /<a\b[^>]*\bhref\s*=\s*(["'])\/[^"']*\1/iu.test(node.value)) {
+        && /<a\b[^>]*\bhref\s*=\s*(["'])\/(?!\/)[^"']*\1/iu.test(node.value)) {
         warnings.add('internal-links-retained');
       }
     });

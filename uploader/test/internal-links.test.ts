@@ -27,6 +27,24 @@ function page(key: string, de: { title: string; slug: string; published: boolean
   return { key, de: content('de', de), en: content('en', en), status: de.published || en.published ? 'published' : 'draft', updatedAt: new Date(0) };
 }
 
+function journeyOnlyEn(): StoredJourney {
+  return {
+    id: 'j2', status: 'published',
+    de: { slug: 'nur-en', title: 'Nur EN', intro: '', heroImage: null, omitted: false, publishedAt: new Date(0) },
+    en: { slug: 'en-tour', title: 'EN Tour', intro: '', heroImage: null, omitted: false, publishedAt: new Date(0) },
+    members: ['en-member'],
+    publishedSnapshot: {
+      version: 1,
+      members: ['en-member'],
+      locales: {
+        de: { slug: 'nur-en', title: 'Nur EN', intro: '', heroImage: null },
+        en: { slug: 'en-tour', title: 'EN Tour', intro: '', heroImage: null },
+      },
+    } as unknown as StoredJourney['publishedSnapshot'],
+    publishedAt: new Date(0), createdAt: new Date(0), updatedAt: new Date(0), hasUnpublishedChanges: false,
+  };
+}
+
 function journey(): StoredJourney {
   return {
     id: 'j1', status: 'published',
@@ -52,7 +70,9 @@ const sources = {
       post('member', { de: { slug: 'reise', title: 'Reise', region: 'europe' }, en: { slug: 'trip', title: 'Trip', region: 'europe' } }),
       post('secondary-draft', { de: { slug: 'entwurf', title: 'Entwurf', region: 'asia' }, en: null }),
       post('journey-member', { de: { slug: 'etappe', title: 'Etappe', region: 'europe' }, en: null }),
+      post('en-member', { de: null, en: { slug: 'en-stage', title: 'En Stage', region: 'europe' } }),
       post('empty-slug', { de: { slug: '', title: 'Ohne Slug', region: 'africa' }, en: null }),
+      post('bad-slug', { de: { slug: 'bad slug', title: 'Bad', region: 'europe' }, en: null }),
     ],
   },
   pages: {
@@ -65,7 +85,7 @@ const sources = {
     keys: async () => [],
     get: async () => { throw new Error('unused'); },
   },
-  journeys: { list: async () => [journey()] },
+  journeys: { list: async () => [journey(), journeyOnlyEn()] },
 };
 
 describe('internal link catalog', () => {
@@ -79,6 +99,9 @@ describe('internal link catalog', () => {
     expect(paths).toContain('/reise/');
     expect(paths).toContain('/rundreisen/');
     expect(paths).toContain('/rundreisen/rundreise/');
+    expect(catalog.targets.find((target) => target.id === 'builtin:journeys')?.alternatePath).toBe('/en/journeys/');
+    expect(catalog.links).toContainEqual({ from: '/rundreisen/', to: '/en/journeys/' });
+    expect(paths.some((path) => path.includes('bad'))).toBe(false);
     expect(paths).toContain('/reiseziele/europa/');
     expect(paths).not.toContain('/datenschutz/');
     expect(paths).not.toContain('/legacy/');
@@ -94,8 +117,20 @@ describe('internal link catalog', () => {
     expect(catalog.links).toContainEqual({ from: '/reiseziele/europa/', to: '/en/destinations/europe/' });
   });
 
+  it('pairs the journeys index when disjoint journeys make both indexes live', async () => {
+    const catalog = await readInternalLinkCatalog({
+      ...sources,
+      posts: sources.posts,
+      journeys: { list: async () => [journey(), journeyOnlyEn()] },
+    }, 'de');
+    expect(catalog.targets.find((target) => target.id === 'builtin:journeys')?.alternatePath).toBe('/en/journeys/');
+    expect(catalog.links).toContainEqual({ from: '/rundreisen/', to: '/en/journeys/' });
+  });
+
   it('uses the explicit language mode for EN-primary roots and journeys', async () => {
-    const catalog = await readInternalLinkCatalog({ ...sources, language: EN }, 'en');
+    const catalog = await readInternalLinkCatalog({
+      ...sources, language: EN, journeys: { list: async () => [journey()] },
+    }, 'en');
     const paths = catalog.targets.map((target) => target.path);
     expect(paths).toContain('/');
     expect(paths).toContain('/travel-map/');

@@ -1,6 +1,6 @@
 # Issue #633 — internal link picker and DE↔EN internal link mapping
 
-Status: **revision 17** (under independent re-review). Issue:
+Status: **revision 18** (PR-review resolution; independent PR re-review pending). Issue:
 [#633](https://github.com/laboef1900/wanderlust-studio/issues/633). Branch
 `feature/issue-633-internal-links`, base `origin/dev`
 (`a4af2c3177d71186625355617a7a5352b6ee62d5`).
@@ -394,7 +394,7 @@ Wiring (story `editor.html` and page `about.html`):
     `destinationError(value) === '' && isEscapedDestination(dest)`; it never feeds
     `dest` back through `escapeDestination`.
 - Tests:
-  - Analyzer (`link-analyze.test.ts`) with `satteri` ground truth: the kind precedence
+  - Analyzer (`markdown-link-selection.test.ts`) with `satteri` ground truth: the kind precedence
     rows (selection inside a link label → `link`; inside `[alpha beta][ref]`'s label →
     `linkReference`; inside a code span → `inlineCode`; inside `[a [b](/c) d](/e)`'s
     literal `d` → `text` (no interest ancestor) and inside `[b](/c)` → `link`;
@@ -810,33 +810,33 @@ describe the removed client parser are historical.
 | Fingerprint accepts remap, rejects provider mutation | §4 two checks | `article-translation.test.ts` escape/tamper tests |
 | Markdown destination is always valid CommonMark; Visual and Markdown agree | §3 | `link-dialog.test.ts` (per-case table, newline), `editor-rich-text.test.ts` (`/my%20page`) |
 | No-edit Apply leaves an escaped destination byte-identical | §3 | `link-dialog.test.ts` (`link` kind with `[x](/a\)b)`, `[x](/a?b&amp;c)`) |
-| Markdown link edits are parser-exact; the browser never parses Markdown | §3 | `link-analyze.test.ts` (satteri ground truth for every kind) |
-| Images, references, definitions, code and HTML blocks are never rewritten | §3 | `link-analyze.test.ts` + `link-dialog.test.ts` (`other` kinds refuse, source byte-identical) |
-| Title-bearing links keep their title; retarget changes only the destination | §3 | `link-analyze.test.ts` (destination range) + `link-dialog.test.ts` (`[x](/about/ "About")`, `[x](/a(b) "T")`, `[x](/a (b))`, `[x](</a b> "T")`) |
-| Nested links resolve to the inner link or plain text, never the literal outer text | §3 | `link-analyze.test.ts` (`[a [b](/c) d](/e)` at `d` → text; inside → inner link) |
-| Reference labels, cross-paragraph selections and syntax-only ranges are never treated as plain text | §3 | `link-analyze.test.ts` (`[alpha beta][ref]`, link+text, cross-paragraph, heading/task/table delimiter → refuse) |
-| A selection inside a link label is a link, not text | §3 | `link-analyze.test.ts` (label selection → `link`; emphasis markers → `other`) |
-| `inlineCode` is refused like `code` | §2/§3 | `link-analyze.test.ts`, `link-dialog.test.ts` |
+| Markdown link edits are parser-exact; the browser never parses Markdown | §3 | `markdown-link-selection.test.ts` (satteri ground truth for every kind) |
+| Images, references, definitions, code and HTML blocks are never rewritten | §3 | `markdown-link-selection.test.ts` + `link-dialog.test.ts` (`other` kinds refuse, source byte-identical) |
+| Title-bearing links keep their title; retarget changes only the destination | §3 | `markdown-link-selection.test.ts` (destination range) + `link-dialog.test.ts` (`[x](/about/ "About")`, `[x](/a(b) "T")`, `[x](/a (b))`, `[x](</a b> "T")`) |
+| Nested links resolve to the inner link or plain text, never the literal outer text | §3 | `markdown-link-selection.test.ts` (`[a [b](/c) d](/e)` at `d` → text; inside → inner link) |
+| Reference labels, cross-paragraph selections and syntax-only ranges are never treated as plain text | §3 | `markdown-link-selection.test.ts` (`[alpha beta][ref]`, link+text, cross-paragraph, heading/task/table delimiter → refuse) |
+| A selection inside a link label is a link, not text | §3 | `markdown-link-selection.test.ts` (label selection → `link`; emphasis markers → `other`) |
+| `inlineCode` is refused like `code` | §2/§3 | `markdown-link-selection.test.ts`, `link-dialog.test.ts` |
 | Insert/retarget inside a table cell preserves the row/cell structure | §3 | `link-dialog.test.ts` (`tableCell` with `\|` escaped, one parsed link) |
-| Offsets are UTF-16 code units | §2/§3 | `link-analyze.test.ts` (`ä`/emoji before the selection) |
-| Oversized bodies refuse, not 500 | §2 | `link-analyze.test.ts` / `server.test.ts` (413 → `linkEditInSource`) |
+| Offsets are UTF-16 code units | §2/§3 | `markdown-link-selection.test.ts` (`ä`/emoji before the selection) |
+| Oversized bodies refuse, not 500 | §2 | `markdown-link-selection.test.ts` / `server.test.ts` (413 → `linkEditInSource`) |
 | Definitions used by images are not remapped | §4 | `article-translation.test.ts` (`[ref]: /img` + `![alt][ref]`) |
 | Empty/multi-range selection sends no request and shows `linkSelectText` | §3 | `link-dialog.test.ts` |
-| Text labels are server-computed and parse to the selected rendered text (trailing `\`, `a\*b`, table `\|`) | §2/§3 | `link-analyze.test.ts`, `link-dialog.test.ts` |
-| Removing a link that would create an outer link is refused (`removalSafe:false`) | §2/§3 | `link-analyze.test.ts`, `link-dialog.test.ts` |
-| Autolinks, bare URLs and image references refuse safely | §2/§3 | `link-analyze.test.ts` |
-| A label boundary inside an escape/entity or an empty selection refuses | §2/§3 | `link-analyze.test.ts` (`Tom &amp; Jerry` selected `Tom &`, empty/whitespace → `other`) |
-| Text labels require exact unit tiling with no overhang; cross-line container selections refuse | §2/§3 | `link-analyze.test.ts` (`Tom &amp;` `[0,5)` → `other`, `[0,9)` → `text`; `> one\n> two` → `other`; one line → `text`; list continuation) |
-| CRLF text tiles like LF; shared locator errors map per caller | §2/§3 | `link-analyze.test.ts` (CRLF+entity), `article-translation.test.ts` (locator throw → `translation_unsupported_source`) |
+| Text labels are server-computed and parse to the selected rendered text (trailing `\`, `a\*b`, table `\|`) | §2/§3 | `markdown-link-selection.test.ts`, `link-dialog.test.ts` |
+| Removing a link that would create an outer link is refused (`removalSafe:false`) | §2/§3 | `markdown-link-selection.test.ts`, `link-dialog.test.ts` |
+| Autolinks, bare URLs and image references refuse safely | §2/§3 | `markdown-link-selection.test.ts` |
+| A label boundary inside an escape/entity or an empty selection refuses | §2/§3 | `markdown-link-selection.test.ts` (`Tom &amp; Jerry` selected `Tom &`, empty/whitespace → `other`) |
+| Text labels require exact unit tiling with no overhang; cross-line container selections refuse | §2/§3 | `markdown-link-selection.test.ts` (`Tom &amp;` `[0,5)` → `other`, `[0,9)` → `text`; `> one\n> two` → `other`; one line → `text`; list continuation) |
+| CRLF text within one line tiles like LF; a selection crossing a softbreak/CRLF refuses | §2/§3 | `markdown-link-selection.test.ts` (CRLF+entity; `one\ntwo` / `one\r\ntwo` → `other`, one line → `text`), `article-translation.test.ts` (locator throw → `translation_unsupported_source`) |
 | One server map builder feeds the client | §1/§2 | `internal-links.test.ts` (GET `links`), `link-dialog.test.ts` (uses verbatim) |
 | Catalog retry after a failed fetch | §3 | `link-dialog.test.ts` (reject then succeed), `editor-dom.test.ts` prepare retry |
 | Legacy/unknown page keys excluded | §1 | `internal-links.test.ts` fake page store |
 | Journey draft members cannot create a live route | §1 | `internal-links.test.ts` snapshot-member case |
-| `publishedLocales` uses committed snapshots only | §1 | `posts.test.ts`, `pg.integration.test.ts` (unpublish/rename cases) |
+| `publishedLocales` uses committed snapshots only | §1 | `posts.test.ts`, `pg.integration.test.ts` (committed slug/title/region; working-row rename; unpublish case) |
 | Map remaps before the picker is opened | §3, §5 | `link-dialog.test.ts` (`map()` awaits fetch), `editor-dom.test.ts` translation |
 | i18n DE+EN, keyboard/ARIA | §3 copy + semantics | i18n completeness tests (distinct DE/EN), `link-dialog.test.ts` |
 | Route integration | §2 | `server.test.ts` (401, locale 400, shape), `reserved-routes.test.ts` parity |
-| Analyzer integration | §2 | `server.test.ts` / `link-analyze.test.ts` (401, invalid body/offsets 400, every kind) |
+| Analyzer integration | §2 | `server.test.ts` / `markdown-link-selection.test.ts` (401, invalid body/offsets 400, every kind) |
 | No translation store reads | §5 | existing `server.test.ts:453-494` unchanged |
 
 ## Verification plan
@@ -851,3 +851,43 @@ describe the removed client parser are historical.
   projection assertions.
 - Browser: run the admin stack if available; otherwise the DOM harnesses and a reported
   visual-verification limitation.
+
+## Revision 18 — independent PR review resolution
+
+The independent PR reviewer (Orca dispatch `ctx_a463516e454b`, model
+`deepseek/deepseek-flash`, reviewing `96b415fe38`) returned **CHANGES REQUESTED**. All
+five blocking findings are resolved in this revision:
+
+1. **Journeys index alternate liveness (B1).** `anyJourney`/`anyAlternateJourney` are now
+   computed independently of which journeys are live in the source locale, so disjoint
+   DE-only + EN-only journeys produce `alternatePath: '/en/journeys/'` and the
+   `/rundreisen/ → /en/journeys/` map entry. `internal-links.test.ts` adds the disjoint
+   fixture and a named regression test.
+2. **Cross-line/softbreak selections (B2).** `selectedLabel` now refuses any selection
+   whose source slice contains `\r` or `\n`, matching §2. Tests cover LF and CRLF
+   crossings (→ `other`) and a within-line selection (→ `text`).
+3. **Markdown write-path safety tests (B3).** `link-dialog.test.ts` now covers empty
+   removal with the raw label preserved, `removalSafe:false` refusal with byte identity,
+   unchanged-URL no-op, title-bearing retarget, table-cell retarget, `inlineCode` and
+   multi-range refusals, an `extraValidate` rejection that keeps the dialog open, map
+   rejection eviction + retry, and Enter/cancel close behavior.
+4. **Postgres projection coverage (B4).** `pg.integration.test.ts` asserts committed
+   slug/title/region per locale and that a working-row rename leaves the committed
+   snapshot projection unchanged. The whole 39-test pg suite passes locally against a
+   disposable `postgres:18-alpine` container.
+5. **Golden Rule 2 live-slug check (B5).** The read-only query
+   `SELECT count(*) FROM posts WHERE slug='internal-links'`,
+   `... WHERE published_snapshot->>'slug'='internal-links'`, and
+   `... FROM pages WHERE slug='internal-links'` against the running
+   `wanderlust-studio-db-1` returned **0, 0, 0** — no published or working post/page owns
+   `/internal-links/`. The reserved-route parity test remains the guard against future
+   content using the segment.
+
+Non-blocking review observations handled in the same revision: the Markdown action now
+passes `extraValidate` so an unescapable destination keeps the dialog open; the shared
+dialog attaches its `change`/`keydown`/`input` handlers once and reads the current
+validator, so listeners no longer accumulate and `aria-invalid` is cleared; `mappedLink`
+no longer maps a double-slash path to its single-slash key; the raw-HTML warning ignores
+protocol-relative `href="//…"`; whitespace-separated empty titles are retargetable;
+malformed published slugs are skipped instead of throwing; and the analyzer route tests
+assert `no-store` and the 1 MiB → 413 refusal.

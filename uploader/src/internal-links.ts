@@ -47,6 +47,7 @@ export async function readInternalLinkCatalog(sources: InternalLinkSources, loca
     });
   }
 
+  const validSlug = (slug: string) => /^[a-z0-9][a-z0-9-]*$/.test(slug);
   const pages = sources.pages.getAll
     ? await sources.pages.getAll()
     : await Promise.all((await sources.pages.keys()).map((key) => sources.pages.get(key)));
@@ -60,9 +61,9 @@ export async function readInternalLinkCatalog(sources: InternalLinkSources, loca
   for (const pair of pages) {
     if (pair.key === 'about' || !isPageKind(pair.key) || pair.status !== 'published') continue;
     const slug = pair[locale].slug;
-    if (pair[locale].publishedAt === null || !slug) continue;
-    const alternateSlug = alternate ? pair[alternate].slug : '';
-    const alternateLive = alternate !== null && pair[alternate].publishedAt !== null && Boolean(alternateSlug);
+    if (pair[locale].publishedAt === null || !slug || !validSlug(slug)) continue;
+    const alternateSlug = alternate ? pair[alternate].slug ?? '' : '';
+    const alternateLive = alternate !== null && pair[alternate].publishedAt !== null && validSlug(alternateSlug);
     add({
       id: `page:${pair.key}`, kind: 'page', title: pair[locale].title,
       path: publicPath(mode, locale, 'story', slug),
@@ -75,12 +76,12 @@ export async function readInternalLinkCatalog(sources: InternalLinkSources, loca
   const liveRegions: Record<LanguageLocale, Set<Region>> = { de: new Set(), en: new Set() };
   for (const post of posts) {
     const live = post.publishedLocales[locale];
-    if (!live?.slug) continue;
+    if (!live?.slug || !validSlug(live.slug)) continue;
     const alt = alternate ? post.publishedLocales[alternate] : null;
     add({
       id: `story:${post.translationKey}`, kind: 'story', title: live.title,
       path: publicPath(mode, locale, 'story', live.slug),
-      alternatePath: alt?.slug ? publicPath(mode, alternate!, 'story', alt.slug) : null,
+      alternatePath: alt?.slug && validSlug(alt.slug) ? publicPath(mode, alternate!, 'story', alt.slug) : null,
     });
     if (Object.hasOwn(regionSlugs, live.region)) liveRegions[locale].add(live.region as Region);
     if (alternate && alt && Object.hasOwn(regionSlugs, alt.region)) liveRegions[alternate].add(alt.region as Region);
@@ -106,14 +107,13 @@ export async function readInternalLinkCatalog(sources: InternalLinkSources, loca
     const membersLive = snapshot.members.some((key) => byKey.get(key)?.publishedLocales[entry]);
     return membersLive ? content : null;
   };
-  let anyJourney = false;
-  let anyAlternateJourney = false;
+  const anyJourney = journeys.some((journey) => journeyEntry(journey, locale) !== null);
+  const anyAlternateJourney = alternate !== null
+    && journeys.some((journey) => journeyEntry(journey, alternate) !== null);
   for (const journey of journeys) {
     const live = journeyEntry(journey, locale);
     if (!live) continue;
-    anyJourney = true;
     const alt = alternate ? journeyEntry(journey, alternate) : null;
-    if (alt) anyAlternateJourney = true;
     add({
       id: `journey:${journey.id}`, kind: 'journey', title: live.title,
       path: journeyPath(live.slug, locale, mode),
