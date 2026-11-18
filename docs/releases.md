@@ -6,6 +6,32 @@ Historical release notes follow. They record release-specific changes, not a pro
 
 ### Cutting a release
 
+**v0.26.0 — gallery EXIF lightbox, draft navigation guard, security hardening** (linux/amd64 and linux/arm64,
+`ghcr.io/laboef1900/wanderlust-studio:0.26.0`). Changes since v0.25.0 (PRs #591–#606, #624, #625, #627):
+
+- **Gallery lightbox EXIF** (#606): displays camera and exposure metadata (focal length, aperture, shutter
+  speed, ISO) in the public gallery lightbox, backed by the existing `media` exposure columns.
+- **Admin Studio & Media** (#601, #605): prompts to save or discard unsaved story drafts on navigation;
+  narrows the admin sidebar, unifies workspace centering, and moves media upload into a toolbar modal
+  with folder selection.
+- **Security & hardening** (#624, #625, #627): resolves CodeQL findings across backup/media path
+  containment, linear-time markdown/gallery parsing, explicit JSON content types on translation routes,
+  URL-scheme checks on editor/settings previews, and rate limiting on GPX and backup download routes.
+- **CI, docs & dependencies** (#591–#600, #602–#604): Astro 7.4.12, `entities` 9.0.0, Vitest 5.1.0,
+  `@fastify/rate-limit`, refreshed `README.md` / `docs/releases.md`, and Playwright / native CI checks.
+
+Upgrade notes for v0.25.0 → v0.26.0 (the [release recovery checklist](../ARCHITECTURE.md#release-recovery-checklist)):
+
+- **Image and deployment:** apply this release's image tag (`0.26.0`). Both `site/` and `uploader/`
+  package manifests are updated to `0.26.0` (from `0.24.0`, as `v0.25.0` did not bump them).
+- **Schema and settings:** no schema, constraint, data, or settings migrations.
+- **Dumps:** writer stays **v15**; reads v1–v15 (`v1–v9` cannot supply private GPX routes).
+- **Compose and `.env`:** no changes.
+- **Rebuild:** deploying does not rebuild; trigger **Publish** on a story or **Settings → Rebuild site
+  now** to ship the gallery lightbox EXIF display on already-published pages.
+- **Recovery:** roll-forward only; no supported downgrade (capture a generation-coherent backup per
+  the checklist before upgrading).
+
 **v0.23.0 — AI story drafts from trip events** (linux/amd64 and linux/arm64,
 `ghcr.io/laboef1900/wanderlust-studio:0.23.0`). Changes since v0.22.0 (PR #580):
 
