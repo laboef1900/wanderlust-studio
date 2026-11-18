@@ -79,10 +79,9 @@ async function expectedList(dir) {
   return readdir(join(root, dir));
 }
 
-// Without --platform a multi-platform image in the containerd store reports the index or
-// the host's platform, not the one being checked, so labels would come from the wrong config.
-const inspect = JSON.parse(docker('image', 'inspect', ...(platform ? ['--platform', platform] : []), image))[0];
-const labels = inspect.Config?.Labels ?? {};
+// Older Docker CLIs reject `--platform` on `docker image inspect`. Create the container for
+// the requested platform first, then inspect its resolved image ID so labels, Os/Architecture,
+// and RepoDigests match the checked platform even in a multi-platform store.
 const created = docker('create', ...(platform ? ['--platform', platform] : []), image).trim();
 const scratch = await mkdtemp(join(tmpdir(), 'image-legal-'));
 const extracted = new Map();
@@ -97,7 +96,12 @@ async function fromImage(path) {
 const text = async (path) => (await fromImage(path))?.toString('utf8') ?? null;
 const same = (a, b) => a !== null && b !== null && Buffer.compare(a, b) === 0;
 
+let inspect;
+let labels = {};
 try {
+  const container = JSON.parse(docker('container', 'inspect', created))[0];
+  inspect = JSON.parse(docker('image', 'inspect', container.Image))[0];
+  labels = inspect.Config?.Labels ?? {};
   check('image.labels.licenses', labels['org.opencontainers.image.licenses'] === 'AGPL-3.0-only', labels['org.opencontainers.image.licenses'] ?? null);
   check('image.labels.source', labels['org.opencontainers.image.source'] === `https://github.com/${REPOSITORY}`, labels['org.opencontainers.image.source'] ?? null);
   if (revision) check('image.labels.revision', labels['org.opencontainers.image.revision'] === revision, labels['org.opencontainers.image.revision'] ?? null);
