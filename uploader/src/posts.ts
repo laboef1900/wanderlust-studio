@@ -118,10 +118,13 @@ export interface PostRevision extends RevisionSummary { snapshot: RevisionSnapsh
 
 /** How many revisions upsertDraft keeps per translation_key (oldest pruned first). */
 export const REVISION_CAP = 20;
+export interface PublishedLocaleContent { slug: string; title: string; region: string }
 export interface PostSummary {
   translationKey: string; title: string; slugs: Record<Locale, string>;
   status: PostStatus; updatedAt: Date; publication: Publication;
   secondaryStatus: 'none' | 'omitted' | 'empty' | 'started';
+  /** Committed snapshot per locale; null unless the row is published with a snapshot. */
+  publishedLocales: Record<Locale, PublishedLocaleContent | null>;
   /**
    * Hero base URL, intrinsic width and optional JPEG-only marker for the list
    * thumbnail. Omitted format means the existing AVIF + WebP pair; the client
@@ -759,9 +762,20 @@ export function memoryPostStore(opts: MemoryPostStoreOptions = {}): PostStore {
           const primary = p[mode.primary];
           const other = secondary ? p[secondary] : undefined;
           const hero = primary.heroImage?.src ? primary.heroImage : other?.heroImage;
+          const published = (locale: 'de' | 'en'): PublishedLocaleContent | null => {
+            if (p.rowStatus[locale] !== 'published') return null;
+            const snapshot = p.snapshotContent[locale];
+            if (!snapshot || typeof snapshot.slug !== 'string' || !snapshot.slug) return null;
+            return {
+              slug: snapshot.slug,
+              title: typeof snapshot.title === 'string' ? snapshot.title : '',
+              region: typeof snapshot.region === 'string' ? snapshot.region : '',
+            };
+          };
           return {
             translationKey: p.translationKey, title: primary.title, slugs: { de: p.de.slug, en: p.en.slug },
             status: p.status, updatedAt: p.updatedAt, publication: publicationWithoutRelease(facts(p, mode)),
+            publishedLocales: { de: published('de'), en: published('en') },
             secondaryStatus: !other ? 'none' as const : other.omitted ? 'omitted' as const : other.bodyMarkdown.trim() ? 'started' as const : 'empty' as const,
             heroSrc: hero?.src ?? '', heroWidth: hero?.width ?? 0,
             ...(hero?.format === 'jpeg' ? { heroFormat: hero.format } : {}),
@@ -1023,6 +1037,9 @@ interface PostListRow extends PublicationRow {
   has_body: boolean;
   omitted: boolean;
   has_snapshot: boolean;
+  published_slug: string | null;
+  published_title: string | null;
+  published_region: string | null;
   categories: string[] | null;
   tags: string[] | null;
   scheduled_at: Date | string | null;
@@ -1275,6 +1292,9 @@ export function pgPostStore(pool: DbPool, options: PgPostStoreOptions = {}): Pos
       return consistentRead(async (client, language) => {
       const { rows } = await client.query<PostListRow>(
         `SELECT translation_key, locale, slug, title, status, updated_at, published_at, omitted, ${PUBLICATION_COLUMNS_SQL},
+                published_snapshot->>'slug' AS published_slug,
+                published_snapshot->>'title' AS published_title,
+                published_snapshot->>'region' AS published_region,
                 hero_image, date, country, region, btrim(body_markdown) <> '' AS has_body,
                 categories, tags, scheduled_at
            FROM posts ORDER BY updated_at DESC`,
@@ -1286,11 +1306,16 @@ export function pgPostStore(pool: DbPool, options: PgPostStoreOptions = {}): Pos
         const secondary = language.locales.find((locale) => locale !== language.primary);
         const other = secondary ? e[secondary] : undefined;
         const hero = shared?.hero_image?.src ? shared.hero_image : other?.hero_image;
+        const live = (row?: PostListRow): PublishedLocaleContent | null =>
+          row && row.status === 'published' && row.has_snapshot && row.published_slug
+            ? { slug: row.published_slug, title: row.published_title ?? '', region: row.published_region ?? '' }
+            : null;
         return {
           translationKey: tk, title: shared?.title ?? '', slugs: { de: e.de?.slug ?? '', en: e.en?.slug ?? '' },
           status: shared?.status ?? 'draft',
           updatedAt: new Date(Math.max(e.de?.updated_at?.getTime() ?? 0, e.en?.updated_at?.getTime() ?? 0)),
           publication: publicationWithoutRelease(publicationFact(tk, Object.values(e), language)),
+          publishedLocales: { de: live(e.de), en: live(e.en) },
           secondaryStatus: !other ? 'none' as const : other.omitted ? 'omitted' as const : other.has_body ? 'started' as const : 'empty' as const,
           heroSrc: hero?.src ?? '', heroWidth: hero?.width ?? 0,
           ...(hero?.format === 'jpeg' ? { heroFormat: hero.format } : {}),

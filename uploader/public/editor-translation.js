@@ -132,9 +132,11 @@ window.EditorTranslation = (function () {
       run.textContent = text('translationStart', { target: localeName(request.snapshot.targetLocale) });
       run.disabled = false;
     }
-    function errorMessage(error, stage) {
+    function errorMessage(error, stage, withLinks) {
       if (error.name === 'TimeoutError') return copy.translationTimedOut;
       if (error.name === 'AbortError') return copy.translationCancelled;
+      if (stage === 'links') return copy.translationLinksFailed;
+      if (error.code === 'translation_invalid_input' && withLinks) return copy.translationLinksInvalid;
       if (error.code === 'translation_input_limit') return copy.translationLimit;
       if (error.code === 'translation_unsupported_source') return copy.translationUnsupported;
       if (error.code === 'translation_structure_mismatch' || error.code === 'translation_invalid_output' ||
@@ -179,20 +181,26 @@ window.EditorTranslation = (function () {
       active = request;
       let config = null;
       let apiKey = null;
-      let stage = 'prepare';
+      let withLinks = false;
+      let stage = 'links';
       say(copy.translationPreparing, 'preparing');
       try {
         const flushed = await options.flush();
         if (!current(request)) return;
         request.flushing = false;
         if (!flushed) throw new Error('Article translation gallery flush failed');
+        const links = options.linkMap ? await options.linkMap(request.snapshot.sourceLocale) : undefined;
+        if (!current(request)) return;
+        withLinks = Array.isArray(links);
+        stage = 'prepare';
         const input = { sourceLocale: request.snapshot.sourceLocale, targetLocale: request.snapshot.targetLocale,
-          source: fields(request.snapshot.draft[request.snapshot.sourceLocale]) };
+          source: fields(request.snapshot.draft[request.snapshot.sourceLocale]), ...(links ? { links } : {}) };
         const plan = await json('/translation/prepare', request, input);
         if (!current(request)) return;
         if (!plan || !Array.isArray(plan.slots) || !Array.isArray(plan.warnings)) throw new Error('Article translation source request failed');
         $('translationWarnings').textContent = plan.warnings.includes('opaque-source-retained') ? copy.translationRetained : '';
         if (plan.warnings.includes('headings-retained-for-fragments')) $('translationWarnings').textContent += ' ' + copy.translationHeadings;
+        if (plan.warnings.includes('internal-links-retained')) $('translationWarnings').textContent += ' ' + copy.translationLinksRetained;
         stage = 'config';
         config = await json('/ai-config?purpose=translation', request);
         if (!current(request)) return;
@@ -241,7 +249,7 @@ window.EditorTranslation = (function () {
         $('translationTitle').focus({ preventScroll: true });
       } catch (error) {
         if (!current(request)) return;
-        say(errorMessage(error, stage), 'error');
+        say(errorMessage(error, stage, withLinks), 'error');
         run.disabled = false;
         run.textContent = copy.translationPrepare;
         request.prepared = null;

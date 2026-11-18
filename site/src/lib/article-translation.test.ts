@@ -518,3 +518,91 @@ describe('article translation bounded inputs and complete outputs', () => {
     await rejectOutput(rejected, { translations: slots.map(({ id }, index) => ({ id, text: 'x'.repeat(index < 25 ? 12_000 : 1) })) });
   });
 });
+
+describe('article translation internal link mapping', () => {
+  async function run(body: string, sourceLocale: 'de' | 'en', targetLocale: 'de' | 'en',
+    links?: { from: string; to: string }[], convert: (text: string) => string = (text) => `T ${text}`) {
+    const input = {
+      sourceLocale, targetLocale,
+      source: { title: 'Titel', excerpt: 'Kurz', bodyMarkdown: body, images: {} },
+      ...(links ? { links } : {}),
+    };
+    const prepared = await prepareTranslation(input);
+    const result = await validateTranslation(input, {
+      translations: prepared.slots.map(({ id, text }) => ({ id, text: convert(text) })),
+    });
+    return { prepared, result };
+  }
+
+  it('remaps inline links between locales, preserving titles, wrappers, queries and fragments', async () => {
+    const body = '[Karte](/karte/?a=1#n "Titel") und [About](</uber-mich/> "Über")';
+    const { result, prepared } = await run(body, 'de', 'en', [
+      { from: '/karte/', to: '/en/map/' }, { from: '/uber-mich/', to: '/en/about-me/' },
+    ]);
+    expect(prepared.warnings).not.toContain('internal-links-retained');
+    expect(result.bodyMarkdown).toContain('[T Karte](/en/map/?a=1#n "Titel")');
+    expect(result.bodyMarkdown).toContain('[T About](</en/about-me/> "Über")');
+  });
+
+  it('remaps home in both directions', async () => {
+    const de = await run('[Start](/)', 'de', 'en', [{ from: '/', to: '/en/' }]);
+    expect(de.result.bodyMarkdown).toContain('[T Start](/en/)');
+    const en = await run('[Start](/de/)', 'en', 'de', [{ from: '/de/', to: '/' }]);
+    expect(en.result.bodyMarkdown).toContain('[T Start](/)');
+  });
+
+  it('remaps link-reference definitions but never a definition used by an image', async () => {
+    const body = '[Kontakt][ref]\n\n![Foto][img]\n\n[ref]: /kontakt/\n[img]: /foto/';
+    const { result, prepared } = await run(body, 'de', 'en', [
+      { from: '/kontakt/', to: '/en/contact/' }, { from: '/foto/', to: '/en/photo/' },
+    ]);
+    expect(result.bodyMarkdown).toContain('[ref]: /en/contact/');
+    expect(result.bodyMarkdown).toContain('[img]: /foto/');
+    expect(prepared.warnings).toContain('internal-links-retained');
+  });
+
+  it('leaves external, mailto, tel, fragment-only and unmapped links untouched with one warning', async () => {
+    const external = '[A](https://e.test/a) [B](mailto:a@b.c) [C](tel:+1) [D](#x)';
+    const untouched = await run(external, 'de', 'en', [{ from: '/x/', to: '/y/' }]);
+    expect(untouched.result.bodyMarkdown).toContain('https://e.test/a');
+    expect(untouched.result.bodyMarkdown).toContain('mailto:a@b.c');
+    expect(untouched.result.bodyMarkdown).toContain('tel:+1');
+    expect(untouched.result.bodyMarkdown).toContain('(#x)');
+    expect(untouched.prepared.warnings).not.toContain('internal-links-retained');
+    const unmapped = await run('[X](/unbekannt/)', 'de', 'en', [{ from: '/bekannt/', to: '/en/bekannt/' }]);
+    expect(unmapped.result.bodyMarkdown).toContain('[T X](/unbekannt/)');
+    expect(unmapped.prepared.warnings).toContain('internal-links-retained');
+    const plain = await run('[X](/unbekannt/)', 'de', 'en');
+    expect(plain.result.bodyMarkdown).toContain('[T X](/unbekannt/)');
+    expect(plain.prepared.warnings).not.toContain('internal-links-retained');
+  });
+
+  it('rejects malformed maps instead of applying them', async () => {
+    const source = fixture('[X](/a/)');
+    const cases: [string, unknown][] = [
+      ['duplicate', [{ from: '/a/', to: '/b/' }, { from: '/a/', to: '/c/' }]],
+      ['external', [{ from: '/a/', to: 'https://e.test/' }]],
+      ['protocol-relative', [{ from: '/a/', to: '//e.test/' }]],
+      ['no trailing from', [{ from: '/a', to: '/b/' }]],
+      ['no trailing to', [{ from: '/a/', to: '/b' }]],
+      ['query', [{ from: '/a/', to: '/b/?' }]],
+      ['extra key', [{ from: '/a/', to: '/b/', extra: true }]],
+      ['dot segment', [{ from: '/a/', to: '/b/..' }]],
+      ['not an array', 'not-an-array'],
+      ['over cap', Array.from({ length: 5001 }, (_, index) => ({ from: `/a${index}/`, to: `/b${index}/` }))],
+    ];
+    for (const [label, links] of cases) {
+      await expect(prepareTranslation({ ...source, links }), label)
+        .rejects.toMatchObject({ name: 'TranslationError', code: 'translation_invalid_input' });
+    }
+  });
+
+  it('cannot change a destination through translated text', async () => {
+    const { result } = await run('[Karte](/karte/)', 'de', 'en', [{ from: '/karte/', to: '/en/map/' }],
+      () => 'x](/evil/)');
+    expect(result.bodyMarkdown).toContain('/en/map/');
+    expect(result.bodyMarkdown).not.toContain('](/evil/)');
+    expect(elements(await renderMarkdown(result.bodyMarkdown), 'a').map((node) => node.properties?.href))
+      .toEqual(['/en/map/']);
+  });
+});

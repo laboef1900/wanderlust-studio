@@ -6901,3 +6901,50 @@ describe('login, setup and password change inherit the root behavior from their 
     }
   });
 });
+
+describe('internal link endpoints', () => {
+  it('requires a session, validates the locale and returns the server-built map', async () => {
+    const b = build();
+    try {
+      expect((await b.app.inject({ url: '/internal-links?locale=de' })).statusCode).toBe(401);
+      expect((await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', payload: { bodyMarkdown: '[x](/a/)', from: 1, to: 2 },
+      })).statusCode).toBe(401);
+      const { cookie } = await authed(b);
+      expect((await b.app.inject({ url: '/internal-links?locale=fr', cookies: cookie })).statusCode).toBe(400);
+      expect((await b.app.inject({ url: '/internal-links?locale=de&locale=en', cookies: cookie })).statusCode).toBe(400);
+      const ok = await b.app.inject({ url: '/internal-links?locale=en', cookies: cookie });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.headers['cache-control']).toBe('no-store');
+      expect(Object.keys(ok.json()).sort()).toEqual(['alternateLocale', 'links', 'locale', 'targets']);
+      expect(ok.json().links).toContainEqual({ from: '/en/', to: '/' });
+    } finally { await b.app.close(); }
+  });
+
+  it('analyzes a Markdown selection and rejects invalid bodies and offsets', async () => {
+    const b = build();
+    const { cookie } = await authed(b);
+    try {
+      const link = await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+        payload: { bodyMarkdown: '[x](/a/ "T")', from: 1, to: 2 },
+      });
+      expect(link.statusCode).toBe(200);
+      expect(link.json()).toMatchObject({ kind: 'link', link: { url: '/a/', removalSafe: true } });
+      expect(link.json().link.destinationStart).toBe(4);
+      const text = await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+        payload: { bodyMarkdown: 'Hallo Welt', from: 0, to: 5 },
+      });
+      expect(text.json()).toMatchObject({ kind: 'text', label: 'Hallo' });
+      for (const payload of [
+        {}, { bodyMarkdown: '[x](/a/)', from: 1 }, { bodyMarkdown: '[x](/a/)', from: 1, to: 1 },
+        { bodyMarkdown: '[x](/a/)', from: 0, to: 99 }, { bodyMarkdown: 7, from: 0, to: 1 }, 'x',
+        { bodyMarkdown: 'x'.repeat(100_001), from: 0, to: 1 },
+      ]) {
+        const res = await b.app.inject({ method: 'POST', url: '/internal-links/analyze', cookies: cookie, payload });
+        expect([400, 415], JSON.stringify(payload)).toContain(res.statusCode);
+      }
+    } finally { await b.app.close(); }
+  });
+});

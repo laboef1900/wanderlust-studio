@@ -13,6 +13,7 @@ import {
 } from './gallery-source.js';
 import { escapeMeta, parsePhotoLine, unescapeMeta, MAX_GALLERY_TEXT } from '../../../uploader/public/gallery-photo-line.js';
 import { applyGalleryEdits, galleryLineEdits } from '../../../uploader/public/gallery-source-edits.js';
+import { definitionRanges, labelEnd, linkRanges, markdownTitle } from './markdown-link-selection.js';
 
 export type TranslationErrorCode = 'translation_invalid_input' | 'translation_input_limit'
   | 'translation_unsupported_source' | 'translation_invalid_output' | 'translation_structure_mismatch';
@@ -26,7 +27,8 @@ export class TranslationError extends Error {
 }
 
 interface ArticleSource { title: string; excerpt: string; bodyMarkdown: string; images: Record<string, ImageDims> }
-interface TranslationInput { sourceLocale: 'de' | 'en'; targetLocale: 'de' | 'en'; source: ArticleSource }
+interface TranslationLink { from: string; to: string }
+interface TranslationInput { sourceLocale: 'de' | 'en'; targetLocale: 'de' | 'en'; source: ArticleSource; links?: TranslationLink[] }
 interface TextSlot { id: string; text: string }
 interface Range { start: number; end: number }
 interface Edit extends Range { text: string }
@@ -43,7 +45,7 @@ interface Binding extends TextSlot {
 }
 interface Plan {
   source: ArticleSource; slots: Binding[]; warnings: string[];
-  images: Record<string, ImageDims>; fingerprint: string;
+  images: Record<string, ImageDims>; fingerprint: string; linkEdits: Edit[];
 }
 
 const LIMITS = { body: 100_000, title: 1000, excerpt: 4000, images: 2000, slots: 2000, inputText: 100_000, outputText: 300_000, prose: 12_000 };
@@ -75,10 +77,41 @@ function text(value: unknown, max: number, code: TranslationErrorCode, limitCode
   return value;
 }
 
+const LINK_PATH = /^\/(?:[a-z0-9][a-z0-9/-]*)?$/;
+const MAX_LINKS = 5000;
+
+function linkMapOf(value: unknown, code: TranslationErrorCode): TranslationLink[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_LINKS) return fail(code);
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    const item = record(entry, code);
+    keys(item, ['from', 'to'], [], code);
+    const from = text(item.from, 2048, code);
+    const to = text(item.to, 2048, code);
+    for (const path of [from, to]) {
+      if (!LINK_PATH.test(path) || path.includes('//') || (path !== '/' && !path.endsWith('/'))) fail(code);
+    }
+    if (seen.has(from)) fail(code);
+    seen.add(from);
+    return { from, to };
+  });
+}
+
+function mappedLink(url: string, map: Map<string, string>): { url: string; internal: boolean; mapped: boolean } {
+  if (!url.startsWith('/') || url.startsWith('//')) return { url, internal: false, mapped: false };
+  const cut = url.search(/[?#]/);
+  const path = cut < 0 ? url : url.slice(0, cut);
+  const suffix = cut < 0 ? '' : url.slice(cut);
+  const candidates = path === '/' ? ['/'] : path.endsWith('/') ? [path, path.slice(0, -1)] : [path, `${path}/`];
+  const to = candidates.map((candidate) => map.get(candidate)).find((candidate) => candidate !== undefined);
+  return to === undefined ? { url, internal: true, mapped: false } : { url: to + suffix, internal: true, mapped: true };
+}
+
 function inputOf(input: unknown): TranslationInput {
   const code = 'translation_invalid_input';
   const value = record(input, code);
-  keys(value, ['sourceLocale', 'targetLocale', 'source'], [], code);
+  keys(value, ['sourceLocale', 'targetLocale', 'source'], ['links'], code);
   if ((value.sourceLocale !== 'de' && value.sourceLocale !== 'en')
     || (value.targetLocale !== 'de' && value.targetLocale !== 'en') || value.sourceLocale === value.targetLocale) fail(code);
   const source = record(value.source, code);
@@ -102,7 +135,8 @@ function inputOf(input: unknown): TranslationInput {
       ...(meta.format === 'jpeg' ? { format: meta.format } : {}),
     };
   }
-  return { sourceLocale: value.sourceLocale as 'de' | 'en', targetLocale: value.targetLocale as 'de' | 'en', source: { title, excerpt, bodyMarkdown, images } };
+  const links = linkMapOf(value.links, code);
+  return { sourceLocale: value.sourceLocale as 'de' | 'en', targetLocale: value.targetLocale as 'de' | 'en', source: { title, excerpt, bodyMarkdown, images }, ...(links ? { links } : {}) };
 }
 
 function bounds(node: SourceNode, source: string): Range {
@@ -250,42 +284,6 @@ function opaqueBodyImages(tree: SourceNode, source: string): Range[] {
     if (openings.length) ranges.push({ start: openings[0]!.start, end: bounds(parent, source).end });
   });
   return ranges;
-}
-
-function labelEnd(source: string, from: number, to: number): number {
-  if (source[from] !== '[') return fail('translation_unsupported_source');
-  let depth = 1;
-  for (let at = from + 1; at < to; at++) {
-    if (source[at] === '\\') { at++; continue; }
-    if (source[at] === '`') {
-      let end = at + 1;
-      while (source[end] === '`') end++;
-      const run = source.slice(at, end);
-      const closing = source.indexOf(run, end);
-      if (closing >= 0 && closing < to) { at = closing + run.length - 1; continue; }
-    }
-    if (source[at] === '[') depth++;
-    if (source[at] === ']' && --depth === 0) return at;
-  }
-  return fail('translation_unsupported_source');
-}
-
-function markdownTitle(source: string, range: Range, value: string): Range {
-  let end = range.end - 1;
-  if (source[end] !== ')') return fail('translation_unsupported_source');
-  while (end > range.start && /\s/u.test(source[end - 1]!)) end--;
-  const closer = source[--end];
-  const opener = closer === ')' ? '(' : closer;
-  if (opener !== '(' && opener !== '"' && opener !== "'") return fail('translation_unsupported_source');
-  for (let at = end - 1; at > range.start; at--) {
-    if (source[at] !== opener) continue;
-    let slash = at - 1;
-    while (source[slash] === '\\') slash--;
-    if ((at - slash - 1) % 2) continue;
-    const decoded = decodeHTMLStrict(source.slice(at + 1, end).replace(/\\([!-/:-@[-`{-~])/gu, '$1'));
-    if (decoded === value) return { start: at + 1, end };
-  }
-  return fail('translation_unsupported_source');
 }
 
 interface Attribute extends Range { name: string; value: string; quote: string }
@@ -497,6 +495,49 @@ async function createPlan(input: TranslationInput): Promise<Plan> {
     if (meta.alt !== undefined) add(meta.alt, MAX_GALLERY_TEXT, { src, field: 'alt' });
     if (meta.caption !== undefined) add(meta.caption, MAX_GALLERY_TEXT, { src, field: 'caption' });
   }
+  const linkEdits: Edit[] = [];
+  if (input.links) {
+    const map = new Map(input.links.map((link) => [link.from, link.to]));
+    const linkRefs = new Set<string>();
+    const imageRefs = new Set<string>();
+    walk(parsed.mdast, (node) => {
+      if (node.type === 'linkReference' && node.identifier) linkRefs.add(node.identifier);
+      if (node.type === 'imageReference' && node.identifier) imageRefs.add(node.identifier);
+    });
+    const remap = (url: string, start: number, end: number) => {
+      const target = mappedLink(url, map);
+      if (!target.internal) return;
+      if (!target.mapped
+        || protectedRanges.some((other) => overlaps({ start, end }, other))
+        || galleries.blocks.some((other) => overlaps({ start, end }, other))
+        || provenance.some((other) => overlaps({ start, end }, other))
+        || linkEdits.some((other) => overlaps({ start, end }, other))) {
+        warnings.add('internal-links-retained');
+        return;
+      }
+      linkEdits.push({ start, end, text: target.url });
+    };
+    walk(parsed.mdast, (node) => {
+      if (node.type === 'link' && node.url?.startsWith('/') && !node.url.startsWith('//')) {
+        try {
+          const ranges = linkRanges(node, body);
+          remap(ranges.url, ranges.destinationStart, ranges.destinationEnd);
+        } catch { warnings.add('internal-links-retained'); }
+      } else if (node.type === 'definition' && node.url?.startsWith('/') && !node.url.startsWith('//')) {
+        if (!node.identifier || imageRefs.has(node.identifier) || !linkRefs.has(node.identifier)) {
+          warnings.add('internal-links-retained');
+          return;
+        }
+        try {
+          const ranges = definitionRanges(node, body);
+          remap(ranges.url, ranges.destinationStart, ranges.destinationEnd);
+        } catch { warnings.add('internal-links-retained'); }
+      } else if (node.type === 'html' && typeof node.value === 'string'
+        && /<a\b[^>]*\bhref\s*=\s*(["'])\/[^"']*\1/iu.test(node.value)) {
+        warnings.add('internal-links-retained');
+      }
+    });
+  }
   // Prove both disjoint provenance and unchanged interpretation before inference.
   // The validator repeats the same comparison with the actual translated text.
   const originalShape = fingerprint(parsed, galleries);
@@ -504,7 +545,9 @@ async function createPlan(input: TranslationInput): Promise<Plan> {
     const neutral = applyGalleryEdits(body, provenance);
     if (fingerprint(canonical(neutral), await analyzeGallerySource(neutral)) !== originalShape) fail('translation_unsupported_source');
   }
-  return { source, slots, warnings: [...warnings], images, fingerprint: originalShape };
+  const expected = applyGalleryEdits(body, [...provenance, ...linkEdits]);
+  const expectedFingerprint = fingerprint(canonical(expected), await analyzeGallerySource(expected));
+  return { source, slots, warnings: [...warnings], images, fingerprint: expectedFingerprint, linkEdits };
 }
 
 async function planOf(input: unknown): Promise<Plan> {
@@ -549,7 +592,7 @@ export async function validateTranslation(input: unknown, output: unknown): Prom
     else patch.images[slot.target.src]![slot.target.field] = value;
   }
   try {
-    patch.bodyMarkdown = applyGalleryEdits(plan.source.bodyMarkdown, edits);
+    patch.bodyMarkdown = applyGalleryEdits(plan.source.bodyMarkdown, [...edits, ...plan.linkEdits]);
     const parsed = canonical(patch.bodyMarkdown);
     const galleries = await analyzeGallerySource(patch.bodyMarkdown);
     if (fingerprint(parsed, galleries) !== plan.fingerprint) fail('translation_structure_mismatch');

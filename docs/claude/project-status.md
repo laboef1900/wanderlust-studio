@@ -4,6 +4,20 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Implemented (issue #633, 2026-11-19): Internal page picker and DE↔EN internal link mapping.**
+  The editor's Link action now opens one shared dialog (`uploader/public/link-dialog.js`) with the
+  live internal-page catalog for the active locale in addition to a free address. Visual mode
+  keeps TipTap's link contract; Markdown mode requires a selected text range and asks
+  `POST /internal-links/analyze` for the exact CommonMark node (`site/src/lib/markdown-link-selection.ts`),
+  so the browser never re-implements Markdown: a link is retargeted only in its destination
+  byte range (title/label preserved), removal is server-proved (`removalSafe`), and plain text
+  is inserted with a server-computed, entity-encoded label. Cursor-only insertion/editing is
+  Visual-only; references, definitions, images, code and HTML blocks are refused with
+  `linkEditInSource`. `GET /internal-links` returns the catalog and the single server-built
+  `links` map; article translation sends that map, and the compiler (`article-translation.ts`)
+  deterministically remaps internal link/definition destinations to the published counterpart,
+  preserving external/mailto/tel/fragment links and leaving unmapped destinations unchanged with
+  `internal-links-retained`. No schema change; all admin copy is in `site/src/i18n/ui.ts`.
 - **Implemented (issue #630, 2026-11-18): Story review practical details and article update.**
   Story review opens as a centered modal and reports image alt-text findings in a new
   required `altText` section instead of `practicalDetails` (`EDITORIAL_REVIEW_SCHEMA` in
