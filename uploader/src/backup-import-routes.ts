@@ -1,13 +1,14 @@
+import rateLimit from '@fastify/rate-limit';
 import { constants } from 'node:fs';
 import { open, type FileHandle } from 'node:fs/promises';
-import { join } from 'node:path';
-import { BACKUP_FILE_RE, IMAGES_ARCHIVE_RE } from './backup.js';
+import { BACKUP_FILE_RE, backupFilePath, IMAGES_ARCHIVE_RE } from './backup.js';
 import { projectBuildReport } from './build-state.js';
 import { diskSpace } from './disk.js';
 import { exportAll } from './export.js';
 import { ROUTE_ARCHIVE_RE } from './gpx-backup.js';
 import { ImportBusyError, type ImportJob } from './import-jobs.js';
 import type { StoredPostPair } from './posts.js';
+import { BACKUP_DOWNLOAD_RATE_LIMIT, RATE_LIMIT_PLUGIN_OPTIONS, requireRouteLimiter } from './rate-limit.js';
 import type { ServerContext } from './server-context.js';
 import { ImportInsufficientSpaceError, ImportTooLargeError, prepareImport, type PreparedImport } from './wp-import.js';
 import { createRehostResume } from './wp-images.js';
@@ -39,33 +40,6 @@ export function registerBackupAndImportRoutes(ctx: ServerContext): void {
   app.post('/backups', { preHandler: requireAdmin }, async (_req, reply) => {
     if (cfg.dbBackup.running()) return reply.code(409).send({ error: 'a backup is already running' });
     return cfg.dbBackup.runNow();
-  });
-
-  app.get<{ Params: { name: string } }>('/backups/:name', { preHandler: requireAdmin }, async (req, reply) => {
-    reply.header('cache-control', 'no-store');
-    const name = req.params.name;
-    const isDump = BACKUP_FILE_RE.test(name);
-    if (!isDump && !IMAGES_ARCHIVE_RE.test(name) && !ROUTE_ARCHIVE_RE.test(name)) {
-      return reply.code(400).send({ error: 'invalid backup filename' });
-    }
-    let handle: FileHandle | undefined;
-    try {
-      handle = await open(join(cfg.dbBackup.dir, name), constants.O_RDONLY | constants.O_NOFOLLOW);
-      const stat = await handle.stat();
-      if (!stat.isFile() || stat.nlink !== 1) {
-        await handle.close();
-        return reply.code(404).send({ error: 'backup not found' });
-      }
-    } catch (error) {
-      await handle?.close().catch(() => {});
-      if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ELOOP')) {
-        return reply.code(404).send({ error: 'backup not found' });
-      }
-      throw error;
-    }
-    reply.header('content-type', isDump ? 'application/gzip' : 'application/x-tar');
-    reply.header('content-disposition', `attachment; filename="${name}"`);
-    return reply.send(handle.createReadStream());
   });
 
   let exportRunning = false;
@@ -140,4 +114,52 @@ export function registerBackupAndImportRoutes(ctx: ServerContext): void {
   });
 
   app.get('/import/status', { preHandler: requireAdmin }, async () => ({ job: await importJobs.latest() }));
+}
+
+/**
+ * `GET /backups/:name` in a child scope of its own, limited per address by
+ * `BACKUP_DOWNLOAD_RATE_LIMIT`. The limiter runs as a `preHandler` after
+ * `requireAdmin`, so a request without an admin session never consumes the
+ * budget. Keep `preHandler: requireAdmin` a function: written as an array,
+ * Fastify's shallow copy of the options for the implicit `HEAD` twin would make
+ * `GET` and `HEAD` share one bucket. The scope's guard refuses any route
+ * without a limit of its own.
+ */
+export function registerBackupDownloadRoute(ctx: ServerContext): void {
+  const { app, cfg, requireAdmin } = ctx;
+  app.register(async (scope) => {
+    await scope.register(rateLimit, RATE_LIMIT_PLUGIN_OPTIONS);
+    scope.addHook('onRoute', requireRouteLimiter((route) => route.config?.rateLimit != null && typeof route.config.rateLimit === 'object', 'config.rateLimit'));
+    scope.get<{ Params: { name: string } }>('/backups/:name', {
+      config: { rateLimit: { ...BACKUP_DOWNLOAD_RATE_LIMIT, hook: 'preHandler' } },
+      preHandler: requireAdmin,
+    }, async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      const name = req.params.name;
+      const isDump = BACKUP_FILE_RE.test(name);
+      if (!isDump && !IMAGES_ARCHIVE_RE.test(name) && !ROUTE_ARCHIVE_RE.test(name)) {
+        return reply.code(400).send({ error: 'invalid backup filename' });
+      }
+      const file = backupFilePath(cfg.dbBackup.dir, name);
+      if (file === null) return reply.code(400).send({ error: 'invalid backup filename' });
+      let handle: FileHandle | undefined;
+      try {
+        handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.nlink !== 1) {
+          await handle.close();
+          return reply.code(404).send({ error: 'backup not found' });
+        }
+      } catch (error) {
+        await handle?.close().catch(() => {});
+        if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ELOOP')) {
+          return reply.code(404).send({ error: 'backup not found' });
+        }
+        throw error;
+      }
+      reply.header('content-type', isDump ? 'application/gzip' : 'application/x-tar');
+      reply.header('content-disposition', `attachment; filename="${name}"`);
+      return reply.send(handle.createReadStream());
+    });
+  });
 }

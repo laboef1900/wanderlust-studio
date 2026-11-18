@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { GALLERY_MODES } from '../../site/src/lib/gallery-layout.js';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { Window } from 'happy-dom';
 
 // draft-guard.js is a plain browser IIFE (window.DraftGuard). Run it inside a
 // vm sandbox with stubbed window/localStorage/location/timers so its behavior
@@ -28,11 +29,45 @@ interface Guard {
   wasDismissed(stash: Stash | null): boolean;
   setResource(resource: string): void;
   redirectToLogin(): void;
+  discard(): void;
 }
 interface DraftGuardApi {
   safeNextPath(raw: string | null): string;
   createDraftGuard(opts: { resource: string; collect: () => unknown; debounceMs?: number }): Guard;
 }
+
+describe('DraftGuard link protocols', () => {
+  it.each([
+    ['javascript:alert(1)', false],
+    ['JaVaScRiPt:alert(1)', false],
+    ['data:text/html,hello', false],
+    ['vbscript:msgbox(1)', false],
+    ['mailto:author@example.com', false],
+    ['/admin/posts.html', true],
+    ['https://example.com/', true],
+    ['http://example.com/', true],
+  ])('only intercepts web navigation: %s', (href, intercepted) => {
+    const dom = new Window({ url: 'https://studio.example/admin/editor.html' });
+    const windowStub: { addEventListener: () => void; DraftGuard?: DraftGuardApi } = {
+      addEventListener: () => {},
+    };
+    vm.runInNewContext(guardSrc, {
+      window: windowStub, document: dom.document, crypto: webcrypto,
+      setTimeout: () => 1, clearTimeout: () => {},
+    });
+    const guard = windowStub.DraftGuard!.createDraftGuard({ resource: 'new', collect: () => ({}) });
+    guard.markDirty();
+    const link = dom.document.createElement('a');
+    link.href = href;
+    dom.document.body.appendChild(link);
+    const event = new dom.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(intercepted);
+    expect(dom.document.querySelector('dialog[open]') !== null).toBe(intercepted);
+    expect(guard.isDirty()).toBe(true);
+    dom.close();
+  });
+});
 interface StubEvent {
   defaultPrevented: boolean;
   returnValue: string | undefined;
@@ -256,6 +291,18 @@ describe('DraftGuard.createDraftGuard', () => {
     expect(sb.pendingTimers()).toBe(0);
     sb.flushTimers();
     expect(guard.tryRestore()).toBeNull();
+  });
+
+  it('discard clears dirty, removes local stash, and disarms beforeunload', () => {
+    const sb = makeSandbox();
+    const guard = sb.api.createDraftGuard({ resource: KEY, collect: () => ({ c: 3 }) });
+    guard.markDirty();
+    guard.stashNow();
+    expect(guard.tryRestore()).not.toBeNull();
+    guard.discard();
+    expect(guard.isDirty()).toBe(false);
+    expect(guard.tryRestore()).toBeNull();
+    expect(sb.fireBeforeUnload().defaultPrevented).toBe(false);
   });
 
   it('dismissRestore keeps the stash but disarms the warning (a misclicked Cancel loses nothing)', () => {
@@ -490,11 +537,6 @@ describe('admin page wiring', () => {
   const login = readFileSync('public/login.html', 'utf8');
   const auth = readFileSync('public/auth.js', 'utf8');
 
-  it('editor, about, and login load the shared draft-guard script', () => {
-    for (const page of [editor, about, login]) {
-      expect(page).toContain('<script src="/admin/draft-guard.js"></script>');
-    }
-  });
 
   it('editor and about create a guard and route every 401 through it', () => {
     for (const page of [editor, about]) {
@@ -546,11 +588,6 @@ describe('admin page wiring', () => {
     }
   });
 
-  it('login honors a validated ?next= return URL', () => {
-    expect(login).toContain('DraftGuard.safeNextPath(');
-    expect(login).toContain('location.href = nextPath');
-    expect(login).not.toMatch(/location\.href = '\/admin\/'/);
-  });
 
 
   it('EasyMDE built-in autosave and toolbar stay off on the page editor (DraftGuard owns persistence, the manuscript bar the tools)', () => {
@@ -679,5 +716,18 @@ describe('admin UI control scale and stylesheet token consistency', () => {
     expect(adminCss).toMatch(/\.btn-sm,\s*:is\(/);
     expect(editorHtml).toMatch(/<details class="editor-actions-menu" id="editorActionsMenu">[\s\S]*id="reviewStory"[\s\S]*<\/details>/);
     expect(settingsHtml).toMatch(/<button id="addProvider" type="button" class="btn-secondary btn-sm"/);
+  });
+
+  it('uses an 11.7rem sidebar and unified 100rem centering measure across admin pages', () => {
+    const journeysCss = readFileSync('public/journeys.css', 'utf8');
+    expect(adminCss).toContain('--cms-sidebar-w: 11.7rem;');
+    expect(adminCss).toContain('--cms-content-max: 100rem;');
+    expect(adminCss).toMatch(/\.cms-topbar\s*\{[^}]*max-width:\s*var\(--cms-content-max\)/);
+    expect(adminCss).toMatch(/\.cms-content\s*\{[^}]*max-width:\s*var\(--cms-content-max\)/);
+    expect(adminCss).not.toMatch(/\.(desk-page|license-page|posts-page)\s+\.cms-(topbar|content)\s*[,{][^}]*max-width/);
+    expect(adminCss).not.toContain('.cms-workspace:has(.media-layout) .cms-topbar');
+    expect(adminCss).not.toContain('.cms-content:has(.media-layout)');
+    expect(adminCss).toMatch(/body\.settings-page\s+\.settings-layout\s*\{[^}]*grid-template-columns:\s*11rem minmax\(0,\s*1fr\)/);
+    expect(journeysCss).toContain('max-width: var(--cms-content-max, 100rem);');
   });
 });

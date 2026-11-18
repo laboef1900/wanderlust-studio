@@ -137,6 +137,38 @@ describe('rich-text Markdown source preservation', () => {
   });
 });
 
+describe('trailing blank lines around source blocks', () => {
+  it.each([
+    ['CRLF, a blank line with blanks, CRLF', '<!-- note\r\n \t\r\n', '<!-- note'],
+    ['a lone CR', '<!-- note\r', '<!-- note'],
+    ['CR, LF and CRLF mixed', '<!-- note\r\n\n\r \t \r\n', '<!-- note'],
+    ['no final line break after blanks', '<!-- note\r\n \t', '<!-- note\r\n \t'],
+    ['no trailing blanks', '<!-- note', '<!-- note'],
+  ])('keeps the source block free of the tail: %s', async (_name, block, shown) => {
+    const source = `Lead\r\n\r\n${block}`;
+    const h = await mount(source);
+    expect(h.host.querySelector('.rich-text-source pre')?.textContent).toBe(shown);
+    expect(h.rich.getMarkdown()).toBe(source);
+    h.rich.setSelection({ from: 3, to: 3 });
+    typeText(h.editor, 'X');
+    expect(h.rich.getMarkdown()).toBe(source.replace('Lead', 'LeaXd'));
+  });
+
+  it.each([
+    ['an HTML block', (run: string) => `Lead\r\n\r\n<!-- a\r${run}x`, true],
+    ['a fenced code block', (run: string) => `Lead\r\n\r\n\`\`\`\r${run}x\r\n\`\`\``, false],
+  ])('handles a long CRLF run inside %s in linear time', async (_name, build, isSource) => {
+    const source = build('\r\n'.repeat(5000));
+    const started = Date.now();
+    const h = await mount(source);
+    h.rich.setSelection({ from: 3, to: 3 });
+    typeText(h.editor, 'X');
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(h.rich.getMarkdown()).toBe(source.replace('Lead', 'LeaXd'));
+    if (isSource) expect(h.host.querySelector('.rich-text-source pre')?.textContent).toBe(source.slice(source.indexOf('<!--')));
+  }, 20_000);
+});
+
 describe('gallery and image safety', () => {
   it('previews only exact-origin variants, keeps photo order, and sends the opening source offset', async () => {
     const onEditGallery = vi.fn();
@@ -161,6 +193,90 @@ describe('gallery and image safety', () => {
     expect(h.host.querySelector('.rich-text-source')?.textContent).toContain(nested);
     (h.host.querySelector('.rich-text-gallery-edit') as unknown as HTMLButtonElement).click();
     expect(onEditGallery).toHaveBeenCalledWith(nested.indexOf('```gallery'));
+  });
+
+  it.each([
+    ['top level', '', ''],
+    ['indented top level', '   ', '   '],
+    ['quote', '> ', '> '],
+    ['quote without a blank', '>', '>'],
+    ['quote with a tab', '>\t', '>\t'],
+    ['nested quotes', '> > ', '> > '],
+    ['nested quotes without blanks', '>>', '>>'],
+    ['nested quotes with tabs', '>\t>\t', '>\t>\t'],
+    ['bullet list', '- ', '  '],
+    ['plus list', '+ ', '  '],
+    ['star list', '* ', '  '],
+    ['bullet list with a tab', '-\t', '\t'],
+    ['quote in a list', '- > ', '  > '],
+    ['list in a quote', '> - ', '>   '],
+  ])('sends the opening fence offset for a gallery at %s', async (_name, first, rest) => {
+    const onEditGallery = vi.fn();
+    const source = `Intro\n\n${first}\`\`\`gallery\n${rest}https://images.example/a | 800x500 | alt="View"\n${rest}\`\`\`\n\nEnd`;
+    const h = await mount(source, { thumbnailUrl: thumb, onEditGallery });
+    expect(h.host.querySelectorAll('.rich-text-gallery img')).toHaveLength(1);
+    (h.host.querySelector('.rich-text-gallery-edit') as unknown as HTMLButtonElement).click();
+    expect(onEditGallery).toHaveBeenCalledTimes(1);
+    expect(onEditGallery).toHaveBeenCalledWith(source.indexOf('```gallery'));
+    expect(h.rich.getMarkdown()).toBe(source);
+  });
+
+  it('maps every opener line of a gallery-bearing block, including ordered-list prefixes, to its fence offset', async () => {
+    // The editor's lexer never yields a fenced code block on an ordered-list marker line, so those
+    // prefixes only reach the scanner as lines of a literal block that also carries a real gallery.
+    const photo = '> https://images.example/a | 800x500 | alt="View"';
+    const source = [
+      '> ```gallery', photo, '> ```', '>', '> ~~~~text',
+      '> 1. ```gallery', photo, '> ```',
+      '> 12) ~~~gallery layout', photo, '> ~~~',
+      '> 3.\t> - ```gallery', photo, '> ```',
+      '> ~~~~',
+    ].join('\n');
+    const onEditGallery = vi.fn();
+    const h = await mount(source, { thumbnailUrl: thumb, onEditGallery });
+    const buttons = [...h.host.querySelectorAll('.rich-text-gallery-edit')] as unknown as HTMLButtonElement[];
+    expect(buttons).toHaveLength(4);
+    buttons.forEach((button) => button.click());
+    const first = source.indexOf('```gallery');
+    expect(onEditGallery.mock.calls.map(([offset]) => offset)).toEqual([
+      first, source.indexOf('```gallery', first + 1), source.indexOf('~~~gallery'), source.lastIndexOf('```gallery'),
+    ]);
+    expect(h.rich.getMarkdown()).toBe(source);
+  });
+
+  it.each([
+    ['quote markers separated by tabs', '>', '\t>'],
+    ['list markers separated by tabs', '*', '\t\t*'],
+  ])('scans a gallery-bearing block with a long run of %s in linear time', async (_name, head, unit) => {
+    const hostile = `> ${head}${unit.repeat(5000)}x`;
+    const source = [
+      '> ~~~~text', hostile, '> ~~~~', '>',
+      '> ```gallery', '> https://images.example/a | 800x500 | alt="View"', '> ```',
+    ].join('\n');
+    const onEditGallery = vi.fn();
+    const started = Date.now();
+    const h = await mount(source, { thumbnailUrl: thumb, onEditGallery });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(h.host.querySelectorAll('.rich-text-gallery')).toHaveLength(1);
+    (h.host.querySelector('.rich-text-gallery-edit') as unknown as HTMLButtonElement).click();
+    expect(onEditGallery).toHaveBeenCalledWith(source.indexOf('```gallery'));
+    expect(h.rich.getMarkdown()).toBe(source);
+  }, 20_000);
+
+  it('finds a tilde-fenced gallery with info text and ignores near-miss opener lines in the same quote', async () => {
+    const nearMisses = [
+      '```galleryx', '``gallery', '~~`gallery', '-```gallery', '1.```gallery', '>x ```gallery', 'x ```gallery',
+    ];
+    const source = [
+      '> ~~~~text', ...nearMisses.map((line) => `> ${line}`), '> ~~~~', '>',
+      '> ~~~gallery layout', '> https://images.example/a | 800x500 | alt="View"', '> ~~~',
+    ].join('\n');
+    const onEditGallery = vi.fn();
+    const h = await mount(source, { thumbnailUrl: thumb, onEditGallery });
+    expect(h.host.querySelectorAll('.rich-text-gallery')).toHaveLength(1);
+    (h.host.querySelector('.rich-text-gallery-edit') as unknown as HTMLButtonElement).click();
+    expect(onEditGallery).toHaveBeenCalledWith(source.indexOf('~~~gallery'));
+    expect(h.rich.getMarkdown()).toBe(source);
   });
 
   it('uses Media alt and caption, respects local override and never exposes stale inherited metadata during lookup', async () => {

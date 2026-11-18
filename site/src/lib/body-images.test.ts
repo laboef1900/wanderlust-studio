@@ -5,7 +5,7 @@ import rehypeParse from 'rehype-parse';
 import rehypeStringify from 'rehype-stringify';
 import { visit } from 'unist-util-visit';
 import type { Element, Root } from 'hast';
-import { STORY_BODY_SIZES, analyzeRenderedBody, transformBodyImages, type ImageDims } from './body-images.js';
+import { STORY_BODY_SIZES, analyzeRenderedBody, formatGalleryExif, transformBodyImages, type ImageDims } from './body-images.js';
 import { escapeMeta } from '../../../uploader/public/gallery-photo-line.js';
 import { renderMarkdown } from './render-markdown.js';
 import { sanitizedBodyTree, textOf } from './gallery-identity.js';
@@ -433,7 +433,7 @@ describe('transformBodyImages — valid image flow (#378)', () => {
     expect(textOf(tree).trim()).toBe(text.trim());
     expectResponsive(tree, alts ?? ['See']);
     expect(elements(tree, parent).some((node) => childTags(node).includes('picture'))).toBe(true);
-    if (body.includes('https://example.com/')) {
+    if (parent === 'a') {
       expect(elements(tree, 'a')).toHaveLength(1);
       expect(elements(tree, 'a')[0]?.properties.href).toBe('https://example.com/');
     }
@@ -804,4 +804,87 @@ describe('transformBodyImages — awaited gallery scheduling', () => {
     expect(scheduled).toBe(false);
     expect(html).toContain('jgal--slider');
   });
+});
+
+describe('formatGalleryExif and gallery data-exif', () => {
+  const src = `${ORIGIN}/trips/exif/photo`;
+  const stored = { [src]: { width: 1600, height: 1000, alt: 'Alt', caption: 'Caption' } };
+
+  it('formats camera, lens and exposure settings in compact technical order, omitting missing or out-of-range fields', () => {
+    expect(formatGalleryExif({
+      camera: 'FUJIFILM X-T4',
+      lens: 'XF16-80mmF4 R OIS WR',
+      focalLength: 29.2,
+      focalLength35mm: 44,
+      fNumber: 6.4,
+      exposureTime: 0.000625,
+      iso: 200,
+    })).toBe('FUJIFILM X-T4 · XF16-80mmF4 R OIS WR · 29 mm · f/6.4 · 1/1600 s · ISO 200');
+
+    expect(formatGalleryExif({
+      camera: '  Leica\u0000 Q2  ',
+      focalLength: 4.3,
+      fNumber: 1.25,
+      exposureTime: 0.8,
+      iso: 124.6,
+    })).toBe('Leica Q2 · 4.3 mm · f/1.25 · 0.8 s · ISO 125');
+
+    expect(formatGalleryExif({ focalLength: null, focalLength35mm: 35, exposureTime: 1.5 })).toBe('35 mm · 1.5 s');
+    expect(formatGalleryExif({ iso: 400 })).toBe('ISO 400');
+    expect(formatGalleryExif(null)).toBe('');
+    expect(formatGalleryExif(undefined)).toBe('');
+    expect(formatGalleryExif({
+      camera: '   ',
+      lens: '\u0000\u001f',
+      focalLength: 0.1,
+      focalLength35mm: 0,
+      fNumber: Number.NaN,
+      exposureTime: -1,
+      iso: 0,
+    })).toBe('');
+  });
+
+  it.each(['column', 'breakout', 'slider'] as const)(
+    'emits escaped data-exif on .jgal__item in %s mode, including when captions are hidden, and omits it when empty',
+    async (mode) => {
+      const exif = 'FUJIFILM X-T4 · XF16-80mmF4 · 29 mm · f/6.4 · 1/1600 s · ISO 200';
+      const html = await transformBodyImages(
+        fence(`#layout: ${mode}\n#captions: hidden\n${src}`),
+        stored,
+        ORIGIN,
+        { locale: 'en', inlineSizes: STORY_BODY_SIZES },
+        new Map([[src, { alt: 'Library alt', caption: 'Library caption', exif }]]),
+      );
+      expect(html).toContain(`data-exif="${exif}"`);
+      expect(html).not.toContain('jgal__cap');
+
+      const withoutExif = await transformBodyImages(
+        fence(`#layout: ${mode}\n${src}`),
+        stored,
+        ORIGIN,
+        { locale: 'en', inlineSizes: STORY_BODY_SIZES },
+        new Map([[src, { alt: 'Library alt', caption: 'Library caption' }]]),
+      );
+      expect(withoutExif).not.toContain('data-exif');
+
+      const hostileText = '"><img src=x onerror=alert(1)> & "quoted"';
+      const hostile = await transformBodyImages(
+        fence(`#layout: ${mode}\n${src}`),
+        stored,
+        ORIGIN,
+        { locale: 'en', inlineSizes: STORY_BODY_SIZES },
+        new Map([[src, { alt: 'Alt', caption: '', exif: hostileText }]]),
+      );
+      const parsed = unified().use(rehypeParse, { fragment: true }).parse(hostile);
+      const figures: Element[] = [];
+      const scripts: Element[] = [];
+      visit(parsed, 'element', (node) => {
+        if (node.tagName === 'figure') figures.push(node);
+        if (node.tagName === 'script') scripts.push(node);
+      });
+      expect(figures[0]?.properties.dataExif).toBe(hostileText);
+      expect(figures).toHaveLength(1);
+      expect(scripts).toHaveLength(0);
+    },
+  );
 });

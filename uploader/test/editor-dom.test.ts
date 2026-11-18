@@ -36,6 +36,22 @@ const scriptStart = html.lastIndexOf('<script type="module">');
 const script = html.slice(html.indexOf("'use strict'", scriptStart), html.lastIndexOf('</script>'));
 const markup = html.slice(0, scriptStart);
 
+// Cache compiled code only; every case still gets a new document, VM context,
+// storage and network fixtures. Hundreds of cases need not reread/recompile it.
+const editorScript = new vm.Script(script, { filename: 'public/editor.html' });
+const compiledBrowserScripts = new Map<string, vm.Script>();
+function runBrowserScript(file: string, context: vm.Context) {
+  let compiled = compiledBrowserScripts.get(file);
+  if (!compiled) {
+    compiled = new vm.Script(browserScript(file), {
+      filename: resolve('public/' + file),
+      importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+    });
+    compiledBrowserScripts.set(file, compiled);
+  }
+  return compiled.runInContext(context);
+}
+
 type Element = EditorElement;
 
 interface ReviewStory {
@@ -542,26 +558,18 @@ async function loadEditor(options: EditorOptions = {}) {
   ctx.window = ctx;
   ctx.languageFixture = { primary: 'de', locales: ['de', 'en'], ...options.language, lockedAt: null, updatedAt: '2026-10-27T00:00:00.000Z' };
   vm.createContext(ctx);
-  vm.runInContext(readFileSync('public/admin-ui.js', 'utf8'), ctx, { filename: 'admin-ui.js' });
-  vm.runInContext(readFileSync('public/build-reporting.js', 'utf8'), ctx);
-  vm.runInContext(readFileSync('public/publication-state.js', 'utf8'), ctx);
-  vm.runInContext(readFileSync('public/publication-refresh.js', 'utf8'), ctx);
-  vm.runInContext(readFileSync('public/auth.js', 'utf8'), ctx, { filename: 'auth.js' });
-  vm.runInContext(readFileSync('public/language.js', 'utf8'), ctx, { filename: 'language.js' });
+  for (const file of ['admin-ui.js', 'build-reporting.js', 'publication-state.js', 'publication-refresh.js', 'auth.js', 'language.js']) runBrowserScript(file, ctx);
   vm.runInContext('SiteLanguage.accept(languageFixture)', ctx);
   // The real URL builder: the Publish dialog shows exactly what it returns.
   // Prompts stay scripted, so no test waits on a native dialog.
-  vm.runInContext(readFileSync('public/admin-confirm.js', 'utf8'), ctx, { filename: 'admin-confirm.js' });
+  runBrowserScript('admin-confirm.js', ctx);
   Object.assign(ctx.AdminConfirm as object, {
     ask: async (prompt: ConfirmPrompt) => {
       prompts.push(prompt);
       return typeof options.confirm === 'function' ? options.confirm(prompt) : options.confirm === true;
     },
   });
-  vm.runInContext(readFileSync('public/draft-guard.js', 'utf8'), ctx, { filename: 'draft-guard.js' });
-  vm.runInContext(readFileSync('public/write-recovery.js', 'utf8'), ctx, { filename: 'write-recovery.js' });
-  vm.runInContext(readFileSync('public/editor-rich-bridge.js', 'utf8'), ctx, { filename: 'editor-rich-bridge.js' });
-  vm.runInContext(readFileSync('public/manuscript-bar.js', 'utf8'), ctx, { filename: 'manuscript-bar.js' });
+  for (const file of ['draft-guard.js', 'write-recovery.js', 'editor-rich-bridge.js', 'manuscript-bar.js']) runBrowserScript(file, ctx);
   const safety = ctx.DraftGuard as {
     createDraftGuard(options: { resource: string; collect: () => unknown; onChange?: (dirty: boolean) => void }): {
       markDirty(): void; redirectToLogin(): void;
@@ -577,16 +585,13 @@ async function loadEditor(options: EditorOptions = {}) {
     return guard;
   };
   for (const file of ['journeys-ui.js', 'waypoint-lookup.js', 'editor-stop-route.js', 'posts-filter.js', 'editor-title-image.js', 'gallery-fence.js', 'gallery-metadata-warnings.js', 'media-api.js', 'gallery-library.js', 'editor-galleries.js', 'editor-linter.js', 'llm.js', 'editor-excerpt.js', 'country-centers.js', 'country-coordinates.js', 'tabs.js', 'editor-review.js', 'editor-translation.js', 'editor-draft.js', 'editor-alt-audit.js', 'editor-inspector.js', 'image-markdown.js']) {
-    vm.runInContext(browserScript(file), ctx, {
-      filename: resolve('public/' + file),
-      importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
-    });
+    runBrowserScript(file, ctx);
   }
   if (options.review) (ctx.LLM as { reviewStory: Review }).reviewStory = options.review;
   if (options.translate && ctx.LLM && typeof ctx.LLM === 'object') Reflect.set(ctx.LLM, 'translateArticle', options.translate);
   if (options.draft && ctx.LLM && typeof ctx.LLM === 'object') Reflect.set(ctx.LLM, 'draftArticle', options.draft);
   options.beforeModule?.(ctx);
-  await vm.runInContext(script, ctx);
+  await editorScript.runInContext(ctx);
   const api = vm.runInContext('({ populateForm, buildPayload, loadPost, doSaveDraft, renderAltAudit })', ctx) as EditorApi;
   return {
     api, el, editors, richEditors, created: dom.created, document: dom.document, requests, galleryRequests, stopRouteRequests, prompts, local, galleryPickers,
@@ -2759,6 +2764,57 @@ describe('editor.html inline script against its own markup', () => {
       api.populateForm(minimalPair());
       expect(el('deHeroPreview').hidden).toBe(true);
       expect(el('deHeroFocus').hidden).toBe(true);
+    });
+
+  const HERO_IMAGES = ['deHeroFocusImg', 'deHeroPreviewImg', 'deHeroThumbImg'];
+  // The harness keeps `src` as a plain property; make it reflect the attribute so a removed src is observable.
+  const reflectSrc = (img: { attrs: Record<string, string>; setAttribute(n: string, v: string): void }) => {
+    Object.defineProperty(img, 'src', { get: () => img.attrs.src ?? '', set: (v: string) => img.setAttribute('src', v), configurable: true });
+  };
+
+  it.each([
+    ['https', 'https://img.example.com/hero'],
+    ['http', 'http://img.example.com/hero'],
+    ['a base with a port', 'http://localhost:3000/uploads/hero'],
+    ['an IPv6 literal host', 'http://[::1]:3000/uploads/hero'],
+    ['an IDN host', 'https://bücher.example/uploads/hero'],
+    ['a trailing-slash base', 'https://img.example.com//hero'],
+  ])('previews a hero served over %s', async (_name, src) => {
+      const { api, el } = await loadEditor();
+      HERO_IMAGES.forEach((id) => reflectSrc(el(id)));
+      const pair = fullPair();
+      pair.de.heroImage = { src, width: 768, height: 512, alt: 'a' };
+      api.populateForm(pair);
+      for (const id of ['deHeroFocus', 'deHeroPreview', 'deHeroThumb']) expect(el(id).hidden).toBe(false);
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).toBe(src + '-640.webp');
+    });
+
+  it.each([
+    ['a script scheme', 'javascript:void(0)'],
+    ['a data URL', 'data:image/png;base64,AAAA'],
+    ['a relative path', '/uploads/hero'],
+    ['a space', 'https://img.example.com/my hero'],
+    ['a double quote', 'https://img.example.com/he"ro'],
+  ])('hides every hero view and drops its src for %s', async (_name, src) => {
+      const { api, el } = await loadEditor();
+      HERO_IMAGES.forEach((id) => reflectSrc(el(id)));
+      const pair = fullPair();
+      pair.de.heroImage = { src, width: 768, height: 512, alt: 'a' };
+      api.populateForm(pair);
+      for (const id of ['deHeroFocus', 'deHeroPreview', 'deHeroThumb', ...HERO_IMAGES]) expect(el(id).hidden).toBe(true);
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).toBeNull();
+    });
+
+  it('clears a previewing hero when it is replaced by a rejected one', async () => {
+      const { api, el } = await loadEditor();
+      HERO_IMAGES.forEach((id) => reflectSrc(el(id)));
+      api.populateForm(fullPair());
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).not.toBeNull();
+      const pair = fullPair();
+      pair.de.heroImage = { src: 'javascript:void(0)', width: 768, height: 512, alt: 'a' };
+      api.populateForm(pair);
+      for (const id of ['deHeroFocus', 'deHeroPreview', 'deHeroThumb']) expect(el(id).hidden).toBe(true);
+      for (const id of HERO_IMAGES) expect(el(id).getAttribute('src')).toBeNull();
     });
 
   it('shows the library action directly for a set or missing image and thumbnails a present one', async () => {

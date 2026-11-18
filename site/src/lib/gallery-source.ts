@@ -2,7 +2,7 @@ import { markdownToHast, type Position } from 'satteri';
 import { unified } from 'unified';
 import rehypeStringify from 'rehype-stringify';
 import { visit, SKIP } from 'unist-util-visit';
-import { EntityDecoder, DecodingMode, htmlDecodeTree } from 'entities/decode';
+import { HtmlEntityDecoder, DecodingMode } from 'entities/decode';
 import type { Element, Root } from 'hast';
 import { MARKDOWN_FEATURES } from './markdown-features.js';
 import { galleryCode, sanitizedBodyTree, textOf } from './gallery-identity.js';
@@ -305,7 +305,8 @@ function fenceBlock(node: SourceNode, source: string, start: number, end: number
   const last = rows.at(-1);
   // This is only closure provenance for an ALREADY PARSED code node. It cannot
   // admit/reject gallery identity; the sanitized pre/code predicate does that.
-  const closing = last && last !== opener && new RegExp(`^[ >\\t]*${run[0] === '`' ? '`' : '~'}{${run.length},}[ \\t]*$`).test(last.text) && rows.length - 2 >= values.length;
+  const closingRun = last && last !== opener ? last.text.match(/^[ >\t]*(`{3,}|~{3,})[ \t]*$/u)?.[1] : undefined;
+  const closing = closingRun !== undefined && closingRun[0] === run[0] && closingRun.length >= run.length && rows.length - 2 >= values.length;
   const contentRows = rows.slice(1, closing ? -1 : undefined);
   const lines = values.map((value, index) => {
     const row = contentRows[index];
@@ -326,7 +327,7 @@ function fenceBlock(node: SourceNode, source: string, start: number, end: number
 function decodedUnits(value: string, sourceAt: (offset: number) => Unit): Unit[] {
   const result: Unit[] = [];
   let decoded = '';
-  const decoder = new EntityDecoder(htmlDecodeTree, (point) => { decoded += String.fromCodePoint(point); });
+  const decoder = new HtmlEntityDecoder((point) => { decoded += String.fromCodePoint(point); });
   for (let i = 0; i < value.length;) {
     let count = 1;
     decoded = value[i] ?? '';

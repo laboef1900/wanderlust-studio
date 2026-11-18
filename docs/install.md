@@ -1,10 +1,12 @@
 # Installing Wanderlust Studio on your own server
 
 This is the supported installation path for a third party. It covers one Linux host running
-the app and Postgres with Docker Compose, behind one HTTPS reverse proxy, serving a blog
-domain and an image domain. Every number below comes from the
-[2026-10-29 clean-install rehearsal](2026-10-29-clean-install-rehearsal.md) (#292); nothing
-here is a benchmark or a guarantee. Examples use `blog.example.com`, `img.example.com` and
+the app, Postgres and the bundled street-routing services with Docker Compose, behind one HTTPS reverse proxy, serving a blog
+domain and an image domain. Every measured number below comes from the
+[2026-10-29 clean-install rehearsal](2026-10-29-clean-install-rehearsal.md) (#292) or the
+source named beside it; nothing here is a benchmark or a guarantee. That rehearsal ran the
+published **0.17.1** image, which predates the street-routing services and later codec updates,
+so treat its disk and memory figures as indicative. Examples use `blog.example.com`, `img.example.com` and
 placeholder secrets. Replace all of them.
 
 > **Image name.** Releases from 0.18.1 on are published as
@@ -95,7 +97,7 @@ sudo chown -R 1000:1000 uploader/data
 
 ### 4b. Get the image
 
-**Released image** (after the first `wanderlust-studio` release):
+**Released image:**
 
 ```bash
 docker compose pull
@@ -105,7 +107,7 @@ If the package requires authentication, run `docker login ghcr.io` first.
 
 #### Build the image locally
 
-Until a release exists, or to run your own changes, build from the checkout. The Dockerfile
+To run your own changes, build from the checkout. The Dockerfile
 uses Docker Hardened Images, so the build host needs access to `dhi.io`:
 
 ```bash
@@ -260,8 +262,8 @@ optional external OSRM services, used only for countries the bundled data does n
   the same disk. That is not disaster recovery: copy the recovery set **offsite**, together
   with `settings.json`, your `.env` and Compose files, and keep `ENCRYPTION_KEY` in separate
   escrow. See [Backups & disaster recovery](../ARCHITECTURE.md#backups--disaster-recovery);
-  the complete offsite inventory and drill are tracked in #296. Restores are CLI-only and
-  offline.
+  the recovery inventory and offsite generation procedure are there; the independent
+  offsite-only recovery drill is still tracked in #296. Restores are CLI-only and offline.
 - **Changing the blog domain later:** move DNS and the proxy first, then save the new public
   domain, then rebuild. Comments from the old domain are refused from the moment you save.
 

@@ -37,8 +37,77 @@ import { readCaptionOverride } from '../../../uploader/public/gallery-photo-line
  */
 export interface ImageDims { width: number; height: number; alt?: string; caption?: string; format?: 'jpeg' }
 
-/** Current localized library descriptions, keyed by the photo's full base URL. */
-export type GalleryMetadata = ReadonlyMap<string, { alt: string; caption: string }>;
+/** Non-location camera/exposure metadata from the Media library, for the lightbox. */
+export interface GalleryExifInput {
+  camera?: string | null;
+  lens?: string | null;
+  focalLength?: number | null;
+  focalLength35mm?: number | null;
+  fNumber?: number | null;
+  iso?: number | null;
+  exposureTime?: number | null;
+}
+
+/** Current localized library descriptions (plus optional formatted EXIF), keyed by the photo's full base URL. */
+export type GalleryMetadata = ReadonlyMap<string, { alt: string; caption: string; exif?: string }>;
+
+const MAX_EXIF_TEXT = 120;
+
+function cleanExifPart(value: unknown, maxLength = MAX_EXIF_TEXT): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .normalize('NFC')
+    .trim()
+    .slice(0, maxLength);
+  return cleaned || null;
+}
+
+function trimmedNumber(value: number, decimals: number): string {
+  return String(Number(value.toFixed(decimals)));
+}
+
+function formatShutterSeconds(seconds: number): string {
+  if (seconds >= 1) return trimmedNumber(seconds, 1);
+  const reciprocal = Math.round(1 / seconds);
+  return reciprocal >= 2 && Math.abs(1 / reciprocal - seconds) <= 0.01 * seconds
+    ? `1/${reciprocal}`
+    : trimmedNumber(seconds, 2);
+}
+
+/**
+ * Format non-location camera and exposure metadata as one compact technical line:
+ * `"FUJIFILM X-T4 · XF16-80mmF4 R OIS WR · 29 mm · f/6.4 · 1/1600 s · ISO 200"`.
+ * Omitted or out-of-range parts are skipped; returns `""` when nothing was recorded.
+ */
+export function formatGalleryExif(exif: GalleryExifInput | null | undefined): string {
+  if (!exif) return '';
+  const parts: string[] = [];
+  const camera = cleanExifPart(exif.camera);
+  if (camera) parts.push(camera);
+  const lens = cleanExifPart(exif.lens);
+  if (lens) parts.push(lens);
+  const focal = typeof exif.focalLength === 'number' && Number.isFinite(exif.focalLength)
+    && exif.focalLength >= 0.5 && exif.focalLength <= 5000 ? exif.focalLength : null;
+  const focal35 = typeof exif.focalLength35mm === 'number' && Number.isFinite(exif.focalLength35mm)
+    && Math.round(exif.focalLength35mm) >= 1 && Math.round(exif.focalLength35mm) <= 10_000
+    ? Math.round(exif.focalLength35mm) : null;
+  if (focal !== null) {
+    parts.push(`${trimmedNumber(focal, focal >= 10 ? 0 : 1)} mm`);
+  } else if (focal35 !== null) {
+    parts.push(`${focal35} mm`);
+  }
+  const fNumber = typeof exif.fNumber === 'number' && Number.isFinite(exif.fNumber)
+    && exif.fNumber >= 0.5 && exif.fNumber <= 512 ? exif.fNumber : null;
+  if (fNumber !== null) parts.push(`f/${trimmedNumber(fNumber, 2)}`);
+  const seconds = typeof exif.exposureTime === 'number' && Number.isFinite(exif.exposureTime)
+    && exif.exposureTime > 0 && exif.exposureTime <= 86_400 ? exif.exposureTime : null;
+  if (seconds !== null) parts.push(`${formatShutterSeconds(seconds)} s`);
+  const iso = typeof exif.iso === 'number' && Number.isFinite(exif.iso)
+    && Math.round(exif.iso) >= 1 && Math.round(exif.iso) <= 10_000_000 ? Math.round(exif.iso) : null;
+  if (iso !== null) parts.push(`ISO ${iso}`);
+  return parts.join(' · ');
+}
 
 /** One accepted gallery occurrence, as the renderer resolved it (#317 publication observations). */
 export interface GalleryUse {
@@ -185,7 +254,7 @@ function onlyMeaningfulChild(node: Element): Element | null {
  * three guards — do not move item construction above them, and do not relax
  * them for a layout mode.
  */
-type GalleryPhoto = { image: RemoteHeroImage; caption: string; captionFollowsLibrary: boolean };
+type GalleryPhoto = { image: RemoteHeroImage; caption: string; captionFollowsLibrary: boolean; exif: string };
 
 /**
  * Photos a fence resolves to, in order, after the three guards above.
@@ -223,15 +292,18 @@ function galleryPhotos(
     if (d.format !== undefined && d.format !== 'jpeg') continue;
     // A present library row wins even when deliberately blank. Missing rows
     // retain the snapshot's descriptions; ordinary inline images never consult it.
-    const description = metadata?.get(raw) ?? d;
+    const libraryEntry = metadata?.get(raw);
+    const description = libraryEntry ?? d;
     const alt = String(description.alt ?? '');
     const override = readCaptionOverride(line);
     const captionFollowsLibrary = captionsVisible && override === undefined;
     const caption = captionsVisible ? String(override ?? description.caption ?? '') : '';
+    const exif = cleanExifPart(libraryEntry?.exif, 320) ?? '';
     photos.push({
       image: { src: raw, alt, width: w, height: hgt, ...(d.format === 'jpeg' ? { format: d.format } : {}) },
       caption,
       captionFollowsLibrary,
+      exif,
     });
   }
   return photos;
@@ -243,13 +315,17 @@ function galleryUse({ image, caption, captionFollowsLibrary }: GalleryPhoto): Ga
 
 /** One `<figure>` — the same item markup in every layout mode. */
 function itemNode(
-  { image, caption }: GalleryPhoto,
+  { image, caption, exif }: GalleryPhoto,
   sizes: string,
   positionTemplate: string,
   position: number,
   style?: string,
 ): ReturnType<typeof h> {
-  return h('figure', { class: 'jgal__item', ...(style ? { style } : {}) }, [
+  return h('figure', {
+    class: 'jgal__item',
+    ...(style ? { style } : {}),
+    ...(exif === '' ? {} : { 'data-exif': exif }),
+  }, [
     h('a', {
       href: largestVariant(image),
       // The picture supplies a nonblank alt natively. Captions are siblings,

@@ -142,7 +142,9 @@ Classify a change before implementing it:
   hand-off and the published-URL-set invariant), the
   journey tables, published snapshots and transactional membership cleanup,
   canonical-origin/comment-origin roles, `/data` layout, AI credentials (the provider registry,
-  `app_secrets` slots, `/ai-providers*` and `/ai-config`), or **any slug or route change**.
+  `app_secrets` slots, `/ai-providers*` and `/ai-config`), the rate limiters and the block of
+  rate-limited scopes at the end of `buildServer` (it MUST stay the last route registration;
+  see `SECURITY.md`, *Rate limiting*), or **any slug or route change**.
 
 | Risk | Design and specification | Verification | Review and recovery |
 | --- | --- | --- | --- |

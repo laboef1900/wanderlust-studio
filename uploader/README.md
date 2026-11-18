@@ -125,10 +125,11 @@ Backup v7 preserves each media item's format and encoding profile.
 #    create your env file from the app's template:
 cp uploader/.env.example .env
 
-# 2. Set a strong Postgres password and the matching DATABASE_URL in .env:
+# 2. Set these in .env (Compose derives DATABASE_URL from the Postgres values; leave it unset):
 #    POSTGRES_PASSWORD=<long-random-string>
-#    DATABASE_URL=postgres://images:<same-password>@db:5432/images
 #    PUBLIC_BASE_URL=http://localhost:3000
+#    IMG_HOST=localhost:3000
+#    IMAGE_TAG=local
 
 # 3. Build the image (compose has no build: key, so `--build` is a no-op) and
 #    start the containers in the background:
@@ -190,8 +191,8 @@ between commands—the CLI lease ends on exit. Follow
 metadata, old volumes or owner content to make setup look fresh.
 
 Uploaded variants — plus the untouched original as `{key}-orig.<ext>` — are
-written to `./data/images/` on the host (a Docker volume), so they survive
-container restarts. `./data/` is git-ignored. Note that `./data/` (images,
+written to `./uploader/data/images/` on the host (a bind mount of `/data`), so they survive
+container restarts. `uploader/data/` is git-ignored. Note that it (images,
 site releases, and the in-app backups) lives on the same disk as everything
 else: for disaster recovery, keep a host-level offsite backup of it — see
 [`../ARCHITECTURE.md`](../ARCHITECTURE.md#backups--disaster-recovery).
@@ -395,7 +396,7 @@ all published pages and stamps newly public locales atomically. Deletion confirm
 paths, revisions, inbound navigation and possible body links; only typed navigation
 references and page revisions are removed. Photos and prose links are untouched.
 Logical dump v13 preserves page lifecycle metadata and `site_nav`; MDX is still
-posts-only. Public generic pages/navigation rendering is #289, not this API slice.
+posts-only. Public generic page and navigation rendering (#289) is part of the site build; this section covers the admin/API side.
 See [authoring](../docs/authoring-workflow.md#editable-pages) and the
 [#287 implementation interface](../docs/superpowers/specs/2026-10-27-issue-287-pages-navigation.md).
 
@@ -411,7 +412,7 @@ ready media row. Per-locale slugs remain locked after first publication, even af
 The story editor shows its claiming journey read-only. Deleting a journey leaves stories
 and their URLs untouched; deleting a story removes every journey reference transactionally.
 
-Logical dump **v14** backs up `journeys`, `journey_locales` and `journey_members`, including
+Logical dumps from **v14** on back up `journeys`, `journey_locales` and `journey_members`, including
 retained snapshots/history and working order. Export all remains stories-only; journeys
 have no MDX export, preview or revision history. Use the
 [offline recovery procedure](../ARCHITECTURE.md#database-dumps), never a live restore.
@@ -421,7 +422,7 @@ state in the same transaction. The verified pre-restore set is the undo. Preserv
 writers, exclusive ownership, private archive validation and explicit cross-mode consent.
 Rollback keeps additive tables inert and patched codecs/ownership safeguards intact;
 an older reader accepting the dump version is not sufficient schema compatibility.
-Public journey pages and member strips are the separate #310 integration.
+Public journey pages and member strips are rendered by the site build (#310).
 
 ## Media library
 
@@ -799,13 +800,13 @@ output containing it. Leave the variable **unset**, not empty, for local-only us
 Malformed supplied keys refuse boot; missing keys permit local startup/captions but
 encrypted operations report `ENCRYPTION_KEY not configured in .env`.
 
-Each remote provider has its own masked **API key** field in its Add/Edit form. OpenRouter
-and DeepSeek require one; Local LM Studio providers never hold one. Blank leaves a stored key
+Each remote provider has its own masked **API key** field in its Add/Edit form. OpenRouter,
+DeepSeek, Anthropic and OpenAI require one; Custom endpoints may be keyless; Local LM Studio providers never hold one. Blank leaves a stored key
 untouched; **Remove stored key** explicitly deletes it after confirmation. "Key stored" means
 stored, not tested. Postgres stores AES-256-GCM ciphertext; **every signed-in author receives
 the key of the provider assigned to a use case, in browser memory**, for direct provider calls
 — never the key of an unassigned provider. The server never contacts a model. The assigned
-providers receive review/excerpt content or resized caption photos; use provider-side limits
+providers receive review/excerpt content, translation text, drafting context or resized caption photos; use provider-side limits
 and revoke/reissue a credential after suspected exposure.
 
 A key is bound to its provider: switching a use case to another provider sends that
@@ -879,7 +880,7 @@ different draft. Results and credentials are not persisted by the drawer.
 If the provider is offline, refuses access, times out or returns malformed output, the
 quick checks remain available with recovery guidance. Admins can follow **Open AI
 settings** where appropriate; authors are directed to their administrator. Missing
-OpenRouter/DeepSeek keys refuse the request locally; a keyless custom endpoint is allowed.
+OpenRouter/DeepSeek/Anthropic/OpenAI keys refuse the request locally; a keyless custom endpoint is allowed.
 
 ## Deterministic editorial checks
 

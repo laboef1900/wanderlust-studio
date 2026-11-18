@@ -184,6 +184,19 @@ describe('htmlToMarkdown', () => {
       const md = htmlToMarkdown(`<blockquote>${anchor('', 'https://wp/my photo (1).jpg')}</blockquote>`);
       expect((await markdownImages(md)).map((i) => i.url)).toEqual(['https://wp/my photo (1).jpg']);
     });
+
+    it.each([
+      ['a backslash in the middle', 'https://wp/a\\b.jpg', '![](https://wp/a\\\\b.jpg)'],
+      ['an escaped-looking parenthesis', 'https://wp/a\\).jpg', '![](https://wp/a\\\\\\).jpg)'],
+      ['a trailing backslash', 'https://wp/a\\', '![](https://wp/a\\\\)'],
+      ['parentheses', 'https://wp/p(1).jpg', '![](https://wp/p\\(1\\).jpg)'],
+      ['a leading < without whitespace', '<x.jpg', '![](<\\<x.jpg>)'],
+      ['<, > and a backslash with whitespace', 'https://wp/a <b> c\\d.jpg', '![](<https://wp/a \\<b\\> c\\\\d.jpg>)'],
+    ])('escapes %s in the degraded image destination and reads it back', async (_name, href, expected) => {
+      const md = htmlToMarkdown(`<blockquote>${anchor('', href)}</blockquote>`);
+      expect(md).toContain(expected);
+      expect((await markdownImages(md)).map((i) => i.url)).toEqual([href]);
+    });
   });
 });
 
@@ -239,6 +252,19 @@ describe('markdownImages', () => {
 
   it('ignores a plain link and an empty destination', async () => {
     expect((await markdownImages('[text](https://wp/a.jpg) ![](  )'))).toEqual([]);
+  });
+
+  it('reads escaped < and > inside an angle destination, with and without whitespace', async () => {
+    const imgs = await markdownImages('![a](<https://wp/a\\<1\\>.jpg>) ![b](<https://wp/b \\<2\\> c.jpg> "t")');
+    expect(imgs.map((i) => i.url)).toEqual(['https://wp/a<1>.jpg', 'https://wp/b <2> c.jpg']);
+  });
+
+  it('does not read an angle destination with an escaped closing bracket as an image', async () => {
+    expect(await markdownImages('![a](<https://wp/a b\\>)')).toEqual([]);
+  });
+
+  it('does not read a bare destination starting with < as an image', async () => {
+    expect(await markdownImages('![a](<https://wp/a.jpg)')).toEqual([]);
   });
 
   // Gallery-local captions (2026-10-19): a gallery line's text is never an

@@ -950,9 +950,13 @@ and in the script-free preview; the lightbox leaves them intact.
 **Lightbox dismissal follows the visible content, not its containers.** In all
 three modes, clicking or tapping the dark space around a photo closes the native
 dialog, even when that space hit-tests to its full-viewport figure. Only the
-photo, caption and controls are excluded from backdrop dismissal — never the
-whole figure or frame. Photo and caption clicks keep it open; arrows navigate;
-Close and Escape dismiss and return focus to the gallery link.
+photo, caption, EXIF technical line (`.jgal__lb-exif`) and controls are excluded
+from backdrop dismissal — never the whole figure or frame. Photo, caption and
+EXIF clicks keep it open; arrows navigate; Close and Escape dismiss and return
+focus to the gallery link. When a gallery photo has camera/lens/exposure metadata
+in the Media library, the lightbox renders a compact monospace line
+(`FUJIFILM X-T4 · XF16-80mmF4 · 29 mm · f/6.4 · 1/1600 s · ISO 200`) beneath the
+caption (even when gallery captions are hidden).
 
 ## Do's and Don'ts
 
@@ -1024,12 +1028,12 @@ Close and Escape dismiss and return focus to the gallery link.
 
 ## Admin authoring: Wanderlust Studio
 
-The approved **Editorial desk** direction (UI mockup 2, based on the owner's CompendiQ
-reference) governs the shared admin shell and Posts list. It is a light operating UI:
-quiet gray navigation, a white workspace, compact rows, and steel-blue navigation and
-New post accents. The public blog's expedition identity is unchanged. Self-hosted
-Inter/IBM Plex Mono remain; the shell and login identify the workspace as **Wanderlust
-Studio**, with **Simon's travel journal** as the descriptor.
+The **Editorial desk** direction governs the shared admin shell and Posts list.
+It is a light operating UI: quiet gray navigation, a frosted white workspace,
+compact rows, and steel-blue navigation and New post accents. The shell gradient
+and control treatments are specified below; the public blog's expedition identity
+is unchanged. Self-hosted Inter/IBM Plex Mono remain. The shell and login identify
+the workspace as **Wanderlust Studio**, with **Simon's travel journal** as the descriptor.
 
 **Writing-first Desk (2026-11-06).** Keep New post in the header after authenticated language
 context resolves, even with a recent draft or unavailable publication observations. Continue
@@ -1295,7 +1299,10 @@ criterion (2.5.5 is AAA), so the accessibility commitment in `PRODUCT.md` is una
   author `display`.
 
 - A full-width 3rem masthead (brand on the left; descriptor and View site on the right)
-  sits above a 13rem sidebar and a single rounded white workspace. The sidebar holds
+  sits above an 11.7rem sidebar (`--cms-sidebar-w`, reduced 10% from 13rem) and a single
+  rounded white workspace whose `.cms-topbar` and `.cms-content` share one `--cms-content-max`
+  (`100rem`) centering measure — filling the workspace on 14-inch laptops and centering
+  consistently across pages on larger displays. The sidebar holds
   all page navigation (no journal header above it) and, at its foot, the account menu. Its
   trigger is a full-width `--radius-lg` button showing the 32px steel-blue (`--studio-accent`) avatar,
   single-line ellipsized username, role, and chevron (`44px` hit height). The panel opens

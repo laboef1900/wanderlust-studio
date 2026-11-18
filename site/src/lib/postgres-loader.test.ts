@@ -505,6 +505,9 @@ describe('postgresTripsLoader load()', () => {
     db.media = [{
       key: 'trips/lima/photo', alt_de: 'Lima am Abend', alt_en: 'Lima at dusk',
       caption_de: 'Blick über Lima', caption_en: 'View over Lima',
+      camera: 'FUJIFILM X-T4', lens: 'XF16-80mmF4 R OIS WR',
+      focal_length: 29.2, focal_length_35mm: 44, f_number: 6.4, iso: 200, exposure_time: 0.000625,
+      lat: -12.0464, lng: -77.0428, uploaded_by: 'simon', title: 'Private library title',
     }];
     const { entries, ctx } = fakeLoadContext();
     const loader = postgresTripsLoader();
@@ -512,8 +515,11 @@ describe('postgresTripsLoader load()', () => {
     const html = (locale: string) => entries.get(`${locale}/${row.slug}`)?.rendered?.html ?? '';
     expect(html('de')).toContain('alt="Lima am Abend"');
     expect(html('de')).toContain('Blick über Lima</figcaption>');
+    expect(html('de')).toContain('data-exif="FUJIFILM X-T4 · XF16-80mmF4 R OIS WR · 29 mm · f/6.4 · 1/1600 s · ISO 200"');
     expect(html('en')).toContain('alt="Lima at dusk"');
     expect(html('en')).toContain('View over Lima</figcaption>');
+    expect(html('en')).toContain('data-exif="FUJIFILM X-T4 · XF16-80mmF4 R OIS WR · 29 mm · f/6.4 · 1/1600 s · ISO 200"');
+    expect(html('de') + html('en')).not.toMatch(/-12\.04|-77\.04|simon|Private library title/);
     expect(html('en')).not.toContain('Lima am Abend');
     expect(html('de')).toContain('Published opening');
     expect(html('de')).not.toContain('Unpublished working edit');

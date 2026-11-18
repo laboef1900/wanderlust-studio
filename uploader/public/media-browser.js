@@ -19,8 +19,18 @@
   var api = window.MediaApi;
   var copy = window.EditorCopy[document.documentElement.lang === 'de' ? 'de' : 'en'];
   $('mediaIntro').textContent = copy.mediaBrowseHelp;
-  $('mediaUploadLabel').textContent = copy.mediaUpload;
+  $('uploadOpen').textContent = copy.mediaUpload;
+  $('uploadTitle').textContent = copy.mediaUpload;
+  $('uploadClose').textContent = copy.mediaViewerClose;
   $('detailJump').textContent = copy.mediaDetails;
+  function enhanceSelect(select, opts) {
+    return window.AdminSelect && select ? window.AdminSelect.enhance(select, opts) : null;
+  }
+  var uploadFolderMenu = enhanceSelect($('uploadFolder'), { label: 'Folder' });
+  var statusMenu = enhanceSelect($('fStatus'));
+  var altMenu = enhanceSelect($('fAlt'));
+  var moveMenu = enhanceSelect($('moveTarget'));
+  var detailFolderMenu = null;
   function revealDetail() {
     $('detail').focus({ preventScroll: true });
     $('detail').scrollIntoView({ block: 'start' });
@@ -436,17 +446,23 @@
     state.alt = value === 'missing' ? 'missing' : '';
     state.page = 1;
     $('fAlt').value = state.alt;
-    // The active filter must be visible, so More filters opens with it.
-    if (state.alt) setMoreFilters(true);
+    if (altMenu) altMenu.sync();
     reload();
   }
 
-  function setMoreFilters(open) {
-    var extra = $('fExtra');
-    var more = $('fMore');
-    extra.hidden = !open;
-    more.setAttribute('aria-expanded', open ? 'true' : 'false');
-    more.textContent = open ? 'Fewer filters' : 'More filters';
+  function fillFolderSelect(select, folders, selected) {
+    select.innerHTML = '';
+    var root = document.createElement('option');
+    root.value = '';
+    root.textContent = '(root)';
+    select.appendChild(root);
+    folders.forEach(function (f) {
+      var opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      select.appendChild(opt);
+    });
+    select.value = folders.indexOf(selected) !== -1 ? selected : '';
   }
 
   function renderToolbar() {
@@ -455,19 +471,12 @@
       : '';
     $('bulkTools').hidden = state.selected.length === 0;
     var target = $('moveTarget');
-    var previous = target.value;
-    target.innerHTML = '';
-    var root = document.createElement('option');
-    root.value = '';
-    root.textContent = '(root)';
-    target.appendChild(root);
-    state.folders.forEach(function (f) {
-      var opt = document.createElement('option');
-      opt.value = f;
-      opt.textContent = f;
-      target.appendChild(opt);
-    });
-    target.value = state.folders.indexOf(previous) !== -1 ? previous : '';
+    fillFolderSelect(target, state.folders, target.value);
+    if (moveMenu) moveMenu.sync();
+    var uploadDialog = $('uploadDialog');
+    var uploadFolder = $('uploadFolder');
+    fillFolderSelect(uploadFolder, state.folders, uploadDialog && uploadDialog.open ? uploadFolder.value : state.folder);
+    if (uploadFolderMenu) uploadFolderMenu.sync();
     $('pageInfo').textContent = state.total
       ? 'Page ' + state.page + ' of ' + Math.max(1, Math.ceil(state.total / state.pageSize))
       : '';
@@ -609,6 +618,7 @@
     // Explicit actions (including Save) still refresh the clean panel normally.
     if (background && item && panel.dataset.key === item.key
       && panel.contains(document.activeElement)) return;
+    if (detailFolderMenu) { detailFolderMenu.close(); detailFolderMenu = null; }
     panel.innerHTML = '';
     // A suggestion belongs to the photo it was asked for: once the panel shows
     // another photo (or none), the request is abandoned, never applied, and
@@ -634,9 +644,12 @@
     state.detailRecovery = null;
     var header = el('div', 'media-detail__header');
     header.appendChild(el('h2', 'section-label', copy.mediaDetails));
-    var back = el('button', 'btn-link', copy.mediaBackToPhotos);
+    var back = el('button', 'media-detail__close');
     back.type = 'button';
     back.id = 'detailBack';
+    back.setAttribute('aria-label', copy.mediaViewerClose);
+    back.title = copy.mediaViewerClose;
+    back.appendChild(window.AdminIcons.close());
     back.addEventListener('click', function () {
       whenReplaceable(null, function () {
         state.detailKey = null;
@@ -685,25 +698,17 @@
     });
     restoreOffers();
 
-    var folderLabel = el('label', null, 'Folder');
+    var folderField = el('div', 'media-detail__field');
     var folderSelect = document.createElement('select');
     folderSelect.id = 'dFolder';
-    var rootOpt = document.createElement('option');
-    rootOpt.value = '';
-    rootOpt.textContent = '(root)';
-    folderSelect.appendChild(rootOpt);
+    folderSelect.setAttribute('aria-label', 'Folder');
     var folders = state.folders;
     // An acknowledged/current item can name a folder created since this list loaded.
     if (item.folder && folders.indexOf(item.folder) === -1) folders = folders.concat(item.folder);
-    folders.forEach(function (f) {
-      var opt = document.createElement('option');
-      opt.value = f;
-      opt.textContent = f;
-      folderSelect.appendChild(opt);
-    });
-    folderSelect.value = item.folder;
-    folderLabel.appendChild(folderSelect);
-    panel.appendChild(folderLabel);
+    fillFolderSelect(folderSelect, folders, item.folder);
+    folderField.appendChild(folderSelect);
+    panel.appendChild(folderField);
+    detailFolderMenu = enhanceSelect(folderSelect);
 
     var save = el('button', null, 'Save details');
     save.id = 'dSave';
@@ -746,13 +751,17 @@
     });
     panel.appendChild(dl);
 
-    // The variant files themselves, read from disk by the observation (renderVersions).
-    var versionsLabel = el('p', 'section-label', copy.mediaVersions);
+    // The variant files themselves, read from disk by the observation (renderVersions),
+    // inside a native disclosure that starts collapsed.
+    var versionsDetails = el('details', 'media-versions-details');
+    versionsDetails.id = 'dVersionsDetails';
+    var versionsLabel = el('summary', 'section-label', copy.mediaVersions);
     versionsLabel.id = 'dVersionsLabel';
-    panel.appendChild(versionsLabel);
+    versionsDetails.appendChild(versionsLabel);
     var versionsBox = el('div');
     versionsBox.id = 'dVersions';
-    panel.appendChild(versionsBox);
+    versionsDetails.appendChild(versionsBox);
+    panel.appendChild(versionsDetails);
     renderVersions();
 
     renderEncodingActions(panel, item);
@@ -1594,7 +1603,6 @@
     $('altMissingAction').addEventListener('click', function () {
       setAltFilter(state.alt === 'missing' ? '' : 'missing');
     });
-    $('fMore').addEventListener('click', function () { setMoreFilters($('fExtra').hidden); });
     $('prevPage').addEventListener('click', function () { state.page = Math.max(1, state.page - 1); reload(); });
     $('nextPage').addEventListener('click', function () { state.page += 1; reload(); });
     // The encoding poll follows the tab: nothing is read while it is hidden.
@@ -1604,24 +1612,59 @@
     window.addEventListener('pagehide', stopPoll);
   }
 
+  function openUploadDialog() {
+    var dialog = $('uploadDialog');
+    if (!dialog || typeof dialog.showModal !== 'function') return;
+    fillFolderSelect($('uploadFolder'), state.folders, state.folder);
+    if (uploadFolderMenu) uploadFolderMenu.sync();
+    if (!dialog.open) dialog.showModal();
+    $('fileInput').focus();
+  }
+
   function bindUpload() {
+    var dialog = $('uploadDialog');
     var zone = $('dropZone');
     var input = $('fileInput');
     var accept = function (files) {
       if (!files || !files.length) return;
-      uploads.add(files, { folder: state.folder });
+      var folder = dialog && dialog.open ? $('uploadFolder').value : state.folder;
+      uploads.add(files, { folder: folder });
       say(copy.uploadStarted.replace('{count}', window.AdminFormat.count(files.length, 'file')));
+      if (dialog && dialog.open) dialog.close();
     };
     input.addEventListener('change', function () { accept(input.files); input.value = ''; });
     ['dragenter', 'dragover'].forEach(function (t) {
       zone.addEventListener(t, function (ev) { ev.preventDefault(); zone.classList.add('is-over'); });
     });
-    ['dragleave', 'drop'].forEach(function (t) {
-      zone.addEventListener(t, function (ev) { ev.preventDefault(); zone.classList.remove('is-over'); });
+    zone.addEventListener('dragleave', function (ev) {
+      ev.preventDefault();
+      if (!ev.relatedTarget || !zone.contains(ev.relatedTarget)) zone.classList.remove('is-over');
     });
     zone.addEventListener('drop', function (ev) {
+      ev.preventDefault();
+      zone.classList.remove('is-over');
       accept(ev.dataTransfer && ev.dataTransfer.files);
     });
+    $('uploadOpen').addEventListener('click', openUploadDialog);
+    $('uploadClose').addEventListener('click', function () { if (dialog) dialog.close(); });
+    if (dialog) {
+      dialog.addEventListener('close', function () {
+        if (uploadFolderMenu) uploadFolderMenu.close();
+      });
+      ['dragover', 'drop'].forEach(function (t) {
+        dialog.addEventListener(t, function (ev) { ev.preventDefault(); });
+      });
+      // Fallback light-dismiss for browsers without <dialog closedby="any"> (Safari).
+      if (typeof HTMLDialogElement !== 'undefined' && !('closedBy' in HTMLDialogElement.prototype)) {
+        var outside = function (ev) {
+          var r = dialog.getBoundingClientRect();
+          return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom;
+        };
+        var pressedOutside = false;
+        dialog.addEventListener('pointerdown', function (ev) { pressedOutside = outside(ev); });
+        dialog.addEventListener('pointerup', function (ev) { if (pressedOutside && outside(ev)) dialog.close(); });
+      }
+    }
   }
 
   // Each uncertain operation keeps its own bounded read/control. A listing,
@@ -1842,7 +1885,7 @@
     $('mediaFolders').open = !window.matchMedia('(max-width: 900px)').matches;
     $('emptyChoosePhotos').textContent = copy.mediaChoosePhotos;
     $('emptyChoosePhotos').addEventListener('click', function () {
-      $('dropZone').open = true;
+      openUploadDialog();
       $('fileInput').focus();
       $('fileInput').click();
     });
@@ -1852,6 +1895,8 @@
       state.recursive = true;
       state.page = 1;
       $('fSearch').value = $('fStatus').value = $('fAlt').value = '';
+      if (statusMenu) statusMenu.sync();
+      if (altMenu) altMenu.sync();
       $('fRecursive').checked = true;
       $('fSearch').focus();
       reload();
@@ -1871,7 +1916,7 @@
     var restored = readUrlState();
     state.alt = restored.alt;
     $('fAlt').value = state.alt;
-    if (state.alt) setMoreFilters(true);
+    if (altMenu) altMenu.sync();
     if (restored.folder) {
       try {
         var folders = await client.folders();

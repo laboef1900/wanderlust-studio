@@ -35,6 +35,7 @@ interface Slide {
   href: string;
   alt: string;
   caption: string;
+  exif: string;
   width: number;
   height: number;
   /** `[type, srcset]` pairs lifted off the item's <picture>, best format first. */
@@ -75,6 +76,7 @@ function slidesOf(gallery: Element): Slide[] {
       href: anchor.getAttribute('href') ?? '',
       alt: img.getAttribute('alt') ?? '',
       caption: item.querySelector('.jgal__cap')?.textContent ?? '',
+      exif: (item.getAttribute('data-exif') ?? '').trim(),
       width: Number(img.getAttribute('width')) || 0,
       height: Number(img.getAttribute('height')) || 0,
       sources,
@@ -102,7 +104,9 @@ function createLightbox(labels: GalleryLabels): Lightbox | null {
   frame.className = 'jgal__lb-frame';
   const caption = document.createElement('figcaption');
   caption.className = 'jgal__lb-cap';
-  figure.append(frame, caption);
+  const exif = document.createElement('p');
+  exif.className = 'jgal__lb-exif';
+  figure.append(frame, caption, exif);
 
   const button = (cls: string, label: string, glyph: string) => {
     const el = document.createElement('button');
@@ -179,6 +183,8 @@ function createLightbox(labels: GalleryLabels): Lightbox | null {
 
     caption.textContent = slide.caption;
     caption.hidden = slide.caption === '';
+    exif.textContent = slide.exif;
+    exif.hidden = slide.exif === '';
     live.textContent = fill(labels.position, {
       current: String(index + 1),
       total: String(slides.length),
@@ -197,10 +203,10 @@ function createLightbox(labels: GalleryLabels): Lightbox | null {
   next.addEventListener('click', () => show(index + 1));
 
   // The figure and frame include empty backdrop space. Only the photo,
-  // caption and controls are content; clicks on their containers dismiss.
+  // caption, EXIF line and controls are content; clicks on their containers dismiss.
   dialog.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
-    if (!event.target.closest('.jgal__lb-frame img, .jgal__lb-cap, .jgal__lb-btn')) dialog.close();
+    if (!event.target.closest('.jgal__lb-frame img, .jgal__lb-cap, .jgal__lb-exif, .jgal__lb-btn')) dialog.close();
   });
 
   dialog.addEventListener('keydown', (event) => {

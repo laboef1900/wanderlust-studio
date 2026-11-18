@@ -385,7 +385,9 @@ describe('journey catalogue DOM', () => {
     context.window = context; vm.createContext(context);
     for (const file of ['language.js', 'admin-ui.js', 'journeys-ui.js']) vm.runInContext(readFileSync('public/' + file, 'utf8'), context);
     const language = options.language ?? { primary: 'en', locales: ['en'] };
-    vm.runInContext(`SiteLanguage.get = async () => SiteLanguage.accept(${JSON.stringify({ ...language, lockedAt: null, updatedAt: stamp })})`, context);
+    const fixture = { ...language, lockedAt: null, updatedAt: stamp };
+    const siteLanguage = context.SiteLanguage as { accept: (value: unknown) => unknown; get: () => Promise<unknown> };
+    siteLanguage.get = async () => siteLanguage.accept(fixture);
     vm.runInContext(html.slice(html.lastIndexOf('<script>') + 8, html.lastIndexOf('</script>')), context); await settle();
     return { dom, list: dom.document.getElementById('journeyList')!, notice: dom.document.getElementById('journeyNotice')!, stored };
   }

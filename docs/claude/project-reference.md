@@ -82,13 +82,14 @@ editor-integrated form; the 2026-06-22 spec is historical.) See `uploader/README
 ### Container Workflow (container-first, deployed stack)
 
 The deployed stack is **container-first** on **Docker Hardened Images (DHI)**: one `app` container
-(Fastify serves blog + admin + images and builds the site in-process) plus `db` (Postgres 18).
-Compose only RUNS the published GHCR image — it does not build it.
+(Fastify serves blog + admin + images and builds the site in-process), `db` (Postgres 18),
+and bundled street-routing services `osrm-fetch` and `osrm`.
+Compose only RUNS the published GHCR app image — it does not build it.
 
 ```bash
 docker compose pull && docker compose up -d   # run the released image (pin via IMAGE_TAG in .env)
-docker compose logs -f                        # tail logs (both services log to stdout)
-docker build .                                # rebuild the app image from the repo root (DHI bases)
+docker compose logs -f                        # tail stack logs
+docker build -t ghcr.io/laboef1900/wanderlust-studio:local .  # build app (DHI access required)
 ```
 
 Rebuilding or redeploying the image does not regenerate the blog's static output — that lives on
@@ -99,6 +100,7 @@ the `/data` volume and only changes via Publish, **Rebuild site now**, or `POST 
 | --- | --- | --- |
 | `app` (Fastify: blog + admin + images) | `3000` | **Loopback** (`127.0.0.1:3000`) — the only published port; one host TLS proxy, with immediate-peer address validation (#108, #369) |
 | `db` (Postgres 18) | `5432` | **Internal** — compose network only; never published to the host |
+| `osrm-fetch` / `osrm` | `5100–5999` (routing servers) | **Internal** — per-country routing data and servers; no host ports |
 | Astro dev server | `4321` | **Loopback** — local development only |
 
 Compose sets `TRUSTED_PROXY: docker-gateway` literally, not through `.env`. It trusts loopback
@@ -176,14 +178,15 @@ changes; they do not substitute for tests, types, or specs.
 ## Repository Structure
 
 ```
-blog/
-├── CLAUDE.md                       # this file
-├── Dockerfile                      # single multistage image (uploader + site trees, DHI runtime); repo-root context
-├── docker-compose.yml              # app + db (WordPress-style, two services)
-├── .github/workflows/ci.yml        # every PR + push to dev/main: typecheck + tests (both apps) + astro check/build, vs a Postgres service
-├── .github/workflows/release.yml   # tag v*.*.* → build & push GHCR image + GitHub Release
+wanderlust-studio/
+├── CLAUDE.md                       # contributor and assistant rules
+├── Dockerfile                      # single multistage app image (uploader + site trees, DHI runtime); repo-root context
+├── docker-compose.yml              # app + db + osrm-fetch + osrm
+├── .github/workflows/ci.yml        # typecheck, unit/integration tests, populated builds and browser checks
+├── .github/workflows/release.yml   # eligible stable main tag → native image qualification and digest promotion
 ├── docs/superpowers/              # design specs + phase plans (source of truth for scope)
-├── *.md                           # blog platform research (WordPress vs Astro, etc.)
+├── docs/releases.md               # historical upgrade notes and maintainer release checklist
+├── *.md                           # product, design, architecture, security and project entry points
 ├── site/                          # the Astro project (static blog; built in-process by uploader/src/build.ts)
 │   ├── scripts/migrate-stub-posts.mjs  # one-off: import MDX stubs into Postgres
 │   └── src/
@@ -205,7 +208,7 @@ blog/
     ├── src/                       #   variants · pipeline · storage · db · users · sessions · authn · server · main · cli · settings · posts · pages · body-content · build · backup · export · preview · wxr-parse · wp-content · wp-images · wp-import
     │                              #   media-files (disk) · media-store (database) · media-sync (reconcile) · encode-queue · work-lock · disk · exif
     │                              #   journeys · journey-cleanup · journeys-admin (working copies, snapshots and language-first cleanup)
-    ├── public/                    #   index.html (hero upload) · import.html (WordPress import) · editor/posts/about/settings/users
+    ├── public/                    #   index.html (writing Desk) · import.html (WordPress import) · editor/posts/pages/about/settings/users
     │                              #   media.html + media-api/media-ai/media-ai-dialog/media-browser/media-picker.js · posts-filter.js · admin-select.js (in-label filter menus)
     │                              #   journeys.html · journey-editor.html (ordered, bilingual journey authoring)
     ├── test/                      #   Vitest suites (integration suites run when TEST_DATABASE_URL is set)

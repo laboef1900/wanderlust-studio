@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   closeSync, constants, createWriteStream, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Pack } from 'tar';
 import type { BackupSchedule } from './settings.js';
@@ -188,6 +188,20 @@ export function dumpLanguage(dump: Dump): LanguageConfig {
  */
 export function resolveBackupDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.BACKUP_DIR ?? join(dirname(env.STORAGE_DIR ?? '/data/images'), 'backup');
+}
+
+/**
+ * Absolute path of `name` directly inside `dir`, or null when it would not be.
+ * The check is lexical: symbolic links are not resolved, so callers must open
+ * the result with `O_NOFOLLOW`.
+ */
+export function backupFilePath(dir: string, name: string): string | null {
+  if (basename(name) !== name) return null;
+  const root = resolve(dir);
+  const target = resolve(root, basename(name));
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  if (target === root || !target.startsWith(prefix)) return null;
+  return target;
 }
 
 export interface Queryable {
@@ -629,7 +643,7 @@ export function sweepTempFiles(dir: string): string[] {
       rmSync(join(dir, name), { force: true });
       swept.push(name);
     } catch (e) {
-      console.error(`could not remove stale backup temp file ${name}:`, e);
+      console.error('could not remove stale backup temp file %s:', name, e);
     }
   }
   return swept;

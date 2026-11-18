@@ -4,9 +4,157 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Security hardening (issue #622, 2026-11-17): CodeQL warning-level findings.** The eleven
+  `warning`-level code-scanning alerts in production code are fixed. The WordPress importer
+  escapes backslashes (and `<`/`>` in angle form) in degraded inline-image destinations, and
+  the image scan (`IMAGE_RE` in `uploader/src/wp-content.ts`) reads those escapes back and no
+  longer treats a bare destination starting with `<` as an image (#609). Console logging in
+  `uploader/src` uses constant format strings (#620). The editor's hero preview only loads
+  absolute http(s) URLs and the settings preview asserts its `blob:` URL (#613). **New
+  behavior (#619):** the GPX routes are limited to 300 requests per minute per address
+  (refused as `429 gpx_busy`, before the session lookup) and `GET /backups/:name` to 30 per
+  minute per address (after the admin check), enforced by the new dependency
+  `@fastify/rate-limit`; `/login`, `/setup` and `/users/me/password` keep their in-house
+  limiters and move, unchanged, into a plugin scope. The three rate-limited scopes are
+  registered last in `buildServer` and must stay last (`SECURITY.md`, *Rate limiting*). No
+  route path, schema or data change. The alerts close when `dev` is rescanned after merge.
+  High-risk design approved by an independent AI reviewer under a scoped, recorded exception.
+  See `docs/superpowers/specs/2026-11-17-issue-622-codeql-warning-level-hardening.md`.
+
+- **Test hygiene (issue #623, 2026-11-17): CodeQL findings in test code.** The 13
+  code-scanning alerts in unit tests and DOM harnesses are fixed without loosening an
+  assertion; no production file changed. The DOM harness (`uploader/test/editor-dom-harness.ts`)
+  parses markup in one pass instead of removing comments and scripts with patterns first,
+  with an identical tree for every input the suites use, and exposes the page's scripts as
+  `editorDocument().scripts`, which the two Desk suites run instead of re-scanning the HTML;
+  the travel-map suite slices the Astro client script by index (#610, #612). The journey
+  catalogue fixture assigns a function instead of evaluating a built code string (#608); the
+  publish-gate oracle decodes the ampersand last (#611); the preview suite counts literal
+  occurrences (#616); the settings suites assert that no off-origin request was made
+  instead of matching a URL prefix, their mixed-content fixture compares a parsed host, and
+  the body-image suite keys on the table's own column (#617). The alerts close
+  when `dev` is rescanned after merge. See
+  `docs/superpowers/specs/2026-11-17-issue-623-codeql-test-hygiene.md`.
+
+- **Security hardening (issue #621, 2026-11-17): CodeQL error-level findings.** The eight
+  `error`-level code-scanning alerts in production code are fixed without changing behavior.
+  Backup downloads resolve the pattern-validated name inside the backup directory
+  (`backupFilePath` in `uploader/src/backup.ts`), and `deleteMedia` and the versions list
+  resolve a key under `STORAGE_DIR` through one helper (`keyLocation` in
+  `uploader/src/media-files.ts`); both sit behind the existing filename patterns and
+  `assertSafeKey` (#618). The translation prepare/validate routes set an explicit JSON
+  content type (#614). The rich-text editor's trailing-line split is a linear scan and its
+  gallery-opener pattern is unambiguous (#607). The gallery analyzer matches closing fences
+  with a static pattern (#615). No route, schema, data or dependency change. The alerts
+  close when `dev` is rescanned after merge. See
+  `docs/superpowers/specs/2026-11-17-issue-621-codeql-error-level-fixes.md`.
+
+- **Implemented (2026-11-17): Gallery lightbox EXIF display.** Article galleries
+  now carry non-location camera and exposure metadata (`camera`, `lens`, focal length,
+  aperture, shutter speed, ISO) from the Media library as `data-exif` on `.jgal__item`
+  at build time (`formatGalleryExif` in `site/src/lib/body-images.ts` and
+  `site/src/lib/postgres-loader.ts`), rendered in the lightbox (`site/src/scripts/gallery-lightbox.ts`)
+  as a compact monospace technical line (`.jgal__lb-exif`) even when gallery captions
+  are hidden. GPS coordinates, capture timestamps, uploader identity and library titles
+  remain excluded from public markup.
+
+- **Resolved dependencies (issue #583, 2026-11-14):** The fixes already landed in
+  PRs [#576](https://github.com/laboef1900/wanderlust-studio/pull/576) and
+  [#592](https://github.com/laboef1900/wanderlust-studio/pull/592). The committed
+  locks resolve `fast-xml-parser` to 5.12.0 in `site/` and 5.12.1 in `uploader/`
+  (direct floor `^5.12.1`); the scoped `@tailwindcss/typography` override resolves
+  `postcss-selector-parser` to 6.1.5. GitHub reports Dependabot alerts #2, #7 and
+  #8 as **fixed**, not dismissed. The third-party inventory was regenerated with
+  the earlier dependency changes. This issue-specific reconciliation preserves
+  those fixes without another dependency update; no parser options, RSS routes,
+  authentication boundaries or persistent data are changed.
+
+- **Documentation cleanup (2026-11-14):** Focused the README on the self-hosted travel
+  publishing product, with explicit hosting and privacy tradeoffs. Moved historical
+  release notes and the maintainer checklist to `docs/releases.md`. Retired implemented
+  UI studies and two stale implementation-session prompts; retained design decisions,
+  phase plans, legal inventories and recovery rehearsal evidence.
+
+- **Implemented (PRs #598 and #599, 2026-11-14): Dependabot Vitest compatibility.**
+  Pinned the uploader's Vitest runner and V8 coverage provider together at 5.1.0 to
+  satisfy their exact peer requirements, then regenerated the lockfile and license
+  inventory. Reviewed the [Vitest 5 migration guide](https://vitest.dev/guide/migration):
+  Node 26 satisfies the runtime requirement; inline unit/integration projects retain
+  their discovery boundaries and serialized integration files. Existing hoisted
+  mocks are top-level. No test guardrails were disabled. Remote CI remains required;
+  fixes are pushed, not deployed.
+
+- **Implemented (PRs #596 and #597, 2026-11-14): Dependabot Vitest compatibility.**
+  Pinned the site's Vitest runner and V8 coverage provider together at 5.1.0 to
+  satisfy their exact peer requirements, then regenerated the lockfile and license
+  inventory. Reviewed the [Vitest 5 migration guide](https://vitest.dev/guide/migration):
+  Node 26 and the installed Vite satisfy its prerequisites; existing hoisted mocks
+  are top-level and no removed runner entrypoints are used. No compatibility
+  suppression or application behavior change. Fixes are pushed; remote CI remains required.
+
+- **Implemented (PR #600, 2026-11-14): Dependabot CI repair.** Regenerated the
+  third-party inventory for entities 9. The uploader uses `decodeHTMLStrict`, whose
+  synchronous API is unchanged in the [9.0.0 release](https://github.com/fb55/entities/releases/tag/v9.0.0).
+  ESM-only packaging and Node >=20.19 are compatible with this ESM/Node 26 app.
+  The separate site decoder migration belongs to #595; no shim or downgrade is
+  needed here. Updated remote CI remains required; fixes are pushed, not deployed.
+
+- **Implemented (PR #595, 2026-11-14): Dependabot entities 9 compatibility.**
+  Replaced the removed table-based streaming decoder with `HtmlEntityDecoder`, as
+  required by the [entities 9 release](https://github.com/fb55/entities/releases/tag/v9.0.0).
+  Legacy text decoding, consumed source offsets and fail-closed gallery mapping are
+  unchanged. Extended the existing translation/gallery regression with astral numeric
+  and two-codepoint named entities. Regenerated the third-party inventory.
+  ESM-only entities 9 supports the project's Node 26 runtime; synchronous decoding
+  APIs remain supported. Updated remote CI remains required; fixes are pushed, not deployed.
+
+- **Implemented (PR #593, 2026-11-14): Dependabot CI repair.** Regenerated the
+  third-party inventory for Astro 7.4.12. Reviewed
+  [upstream patch notes](https://github.com/withastro/astro/releases/tag/astro%407.4.12)
+  and the installed dependency graph; no application API migration is required.
+  Static output and the published-route contract remain unchanged. Updated remote CI
+  and release-platform qualification are still required; fixes are pushed, not deployed.
+
+- **Implemented (PR #594, 2026-11-14): Dependabot CI repair.** Regenerated the
+  third-party inventory and moved the existing esbuild lifecycle approval to 0.28.2.
+  Reviewed the coordinated Tiptap 3.33.1 stack, Astro/MDX/Satteri compatibility,
+  Fastify 5 plugin compatibility and Node 26 engine requirements.
+  [Satteri's JavaScript API remains unchanged](https://github.com/bruits/satteri/releases/tag/satteri-v0.11.1);
+  [MapLibre 6.13](https://github.com/maplibre/maplibre-gl-js/releases/tag/v6.13.0)
+  retains the copied shared-module file for compatibility while making the worker
+  self-contained. Existing map imports/copy paths remain supported through 6.17.
+  Updated remote CI and release-platform qualification remain required; no deployment.
+
+- **Implemented locally (2026-11-14): Descriptive GitHub workflow names.** Workflow
+  labels now describe tests/type/browser checks, test coverage reports, Dependabot
+  dependency inventory patches, release build/qualification/publication, and
+  security scans/dependency review. Filenames, triggers, jobs and required check
+  names are unchanged. GitHub's managed `Dependabot Updates` entry is unchanged.
+
+- **Completed (2026-11-14): Retired GitHub workflow cleanup.** With explicit owner
+  approval overriding the earlier history-retention decision, deleted all 11 runs
+  of `issue-292-native-rehearsal` and `issue-304-native-qualification`, including
+  their logs/artifacts. GitHub's workflow listing no longer contains either
+  registration. CI, coverage, dependency inventory, release, security and
+  Dependabot Updates remain active and unchanged.
+
+- **Implemented locally (2026-11-13): GitHub automation and test quality.** Read-only workflow
+  permissions, immutable action pins, PR-only cancellation and bounded jobs; stable-main/green-CI
+  release eligibility, native candidate ownership/restore + legal checks and digest-only promotion.
+  Adds four-mode populated build fixtures, real Chromium authoring/recovery/publication smoke,
+  computed accessible-name checks, weekly coverage, CodeQL, dependency review and grouped
+  Dependabot updates with a protected-base-generated inventory patch. Patches the XML/parser
+  dependency alerts and regenerates the legal inventory. Removes redundant wiring/decorative
+  assertions, reuses compiled editor test scripts without sharing mutable state, and scopes backup
+  column assertions to the active schema. The repository token default is read-only and the two
+  obsolete issue-specific workflow registrations are disabled; history is retained. No push,
+  release or deployment was performed. Native Linux/DHI candidate execution and remote CI remain
+  required before release. Contract, commands and runtime evidence:
+  `docs/superpowers/specs/2026-11-13-github-automation-hardening.md`.
+
 - **Implemented (2026-11-13):** **Software license and source page, capsule account trigger, & thin scrollbars** (`uploader/public/auth.js`, `uploader/public/license.html`, `uploader/public/admin.css`, `uploader/scripts/copy-legal.mjs`). Moved **Software license and source** into `#cmsAccountMenu`'s panel (above **Log out**), linking to `/admin/license.html`; the account trigger is a `44px` capsule showing the avatar, single-line username, role, and chevron; restored `scrollbar-width: thin` on `.cms-workspace` and `.cms-nav-group`; `copy-legal.mjs`'s standalone `/legal/*.html` and `/admin/legal/*.html` indexes also use matching Mist gradient + frosted card styling.
- - **Implemented (2026-11-13):** **Admin Tinted Paper & Capsules (3B)** across all admin pages and dialogs (`uploader/public/admin.css`, mockups in `ui-mockups/story-details-controls.html` and `ui-mockups/editorial-underline-refinements.html`). Inputs, textareas, selects, file inputs, filter triggers (`.admin-select__trigger`), and `.slug-preview` fields use paper wells (`#f6f8fa` / `rgb(255 255 255 / 0.76)` in the Story details rail) with `--radius-lg` top corners and a `1.5px` bottom ledger rule that lifts to `--surface` and `--studio-accent` on focus; custom checkboxes/radios use `--studio-accent` with `forced-colors` fallback; action buttons, command-bar controls, row action links, and `.excerpt-assist__generate` use `999px` capsules while preserving unboxed `.editor-title-input`, segmented tabs, flat list/tab triggers, and menu items.
- - **Implemented (2026-11-13):** **Admin shell gradient & frosted workspace** (`uploader/public/admin.css`, mockup in `ui-mockups/shell-gradient.html`). `.cms-app-shell` uses a neutral-gray rule-of-thirds diagonal gradient (`#d0d4da` bottom-left → `#dbdfe4` at `(1/3, 1/3)` → `#fbfbfd` top-right, with `--shell-muted: #4b525c` for AA contrast in the sidebar/masthead), and `.cms-workspace` uses `68%` translucent frosted white (`backdrop-filter: blur(16px) saturate(112%)`), extended to the Story editor's `.editor-workspace`, `.editor-commandbar`, and `.editor-inspector` backdrop.
+ - **Implemented (2026-11-13):** **Admin Tinted Paper & Capsules (3B)** across all admin pages and dialogs (`uploader/public/admin.css`). Inputs, textareas, selects, file inputs, filter triggers (`.admin-select__trigger`), and `.slug-preview` fields use paper wells (`#f6f8fa` / `rgb(255 255 255 / 0.76)` in the Story details rail) with `--radius-lg` top corners and a `1.5px` bottom ledger rule that lifts to `--surface` and `--studio-accent` on focus; custom checkboxes/radios use `--studio-accent` with `forced-colors` fallback; action buttons, command-bar controls, row action links, and `.excerpt-assist__generate` use `999px` capsules while preserving unboxed `.editor-title-input`, segmented tabs, flat list/tab triggers, and menu items.
+ - **Implemented (2026-11-13):** **Admin shell gradient & frosted workspace** (`uploader/public/admin.css`). `.cms-app-shell` uses a neutral-gray rule-of-thirds diagonal gradient (`#d0d4da` bottom-left → `#dbdfe4` at `(1/3, 1/3)` → `#fbfbfd` top-right, with `--shell-muted: #4b525c` for AA contrast in the sidebar/masthead), and `.cms-workspace` uses `68%` translucent frosted white (`backdrop-filter: blur(16px) saturate(112%)`), extended to the Story editor's `.editor-workspace`, `.editor-commandbar`, and `.editor-inspector` backdrop.
 
 - **Implemented (PR #580 for #579, 2026-11-12):** **Draft with AI** fills an empty story
   language from the author's list of trip events. Browser-direct through a fourth AI
@@ -995,10 +1143,11 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
   release is announced for third-party installs, run `uploader/scripts/check-image-legal.mjs`
   against each published platform image with `--revision <tag commit>`; see the spec's
   *Release-time artifact gate* (`docs/superpowers/specs/2026-10-27-software-content-brand-rights-design.md`).
-- **Remaining:** Phase 4 = DNS cutover. See `docs/superpowers/plans/` for phase details. Not
-  started, deliberately: #67 (AI authoring — design spec landed 2026-07-28, implementation not
-  started), #72 (Traefik timeouts). #68 (production EXIF audit) was **closed as obsolete**
-  2026-07-29. See `docs/superpowers/plans/IMPLEMENTATION-PROMPT.md` for why each is excluded.
+- **Historical backlog snapshot (2026-07-29; not a current roadmap):** Phase 4 was
+  DNS cutover; #67 (the original AI-authoring proposal) and #72 (host-side Traefik
+  timeout investigation) were deliberately excluded from the backend rework.
+  #68 (production EXIF audit) was closed as obsolete on 2026-07-29. Later entries
+  above record the shipped AI authoring features; use current issues for open work.
 - **Filed out of #85 and deliberately excluded from it** (each with its reason in the §Scope table of
   `docs/superpowers/specs/2026-07-30-wxr-import-hardening-design.md`):
   - **#91 publish gate rejects leftover `wp-content` URLs** — **done 2026-09-06** (see the Done

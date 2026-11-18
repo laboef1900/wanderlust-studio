@@ -1,5 +1,5 @@
 import { lstat, readdir, unlink } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import sharp from 'sharp';
 import { assertSafeKey } from './storage.js';
 import type { PostUsageRow } from './posts.js';
@@ -242,6 +242,17 @@ export function imageUsageBatch(
   return result;
 }
 
+/** The directory holding `key`'s files and the key's own filename, inside `storageDir`. */
+function keyLocation(storageDir: string, key: string): { dir: string; base: string } {
+  assertSafeKey(key); // path-traversal guard — same chokepoint as every write
+  const root = resolve(storageDir);
+  const target = resolve(root, key);
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  // Deliberately redundant behind assertSafeKey; keep it inline on the resolved path, the only form static analysis credits.
+  if (!target.startsWith(prefix)) throw new Error('unsafe storage key (resolves outside the storage directory)');
+  return { dir: dirname(target), base: basename(target) };
+}
+
 /**
  * Unlink every variant file belonging to `key` (exact match after stripping
  * the variant suffix — sibling keys sharing a prefix are untouched).
@@ -249,10 +260,7 @@ export function imageUsageBatch(
  */
 export async function deleteMedia(storageDir: string, key: string, opts: WorkCancellationOptions = {}): Promise<number> {
   assertWorkWritable(opts);
-  assertSafeKey(key); // path-traversal guard — same chokepoint as every write
-  const root = resolve(storageDir);
-  const dir = join(root, dirname(key));
-  const base = basename(key);
+  const { dir, base } = keyLocation(storageDir, key);
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -334,9 +342,7 @@ async function headerHeight(file: string): Promise<number | null> {
  * the caller reports it as unavailable and must not log it with the path.
  */
 export async function listVariantFiles(storageDir: string, key: string): Promise<VariantFile[]> {
-  assertSafeKey(key);
-  const dir = join(resolve(storageDir), dirname(key));
-  const base = basename(key);
+  const { dir, base } = keyLocation(storageDir, key);
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });

@@ -4,11 +4,35 @@ How to write a new travel post, add its photos, and get it live. Three stages:
 **(1) upload the photos**, **(2) write and publish via the in-admin editor**, **(3) rebuild (automatic on Publish)**.
 
 **Post content lives in Postgres** — not in git or baked into the Docker image. The in-admin
-editor (Phase B) is the authoring interface: you write DE and EN content directly in the browser
-and hit **Publish** to trigger a rebuild. Story photos are kept out of git and Postgres: the app's
-**media library** stores optimized variants on the server and serves them from
-`https://img.simonswanderlust.com`. A post only ever references image **URLs** — and you
-can upload images inline from the editor without visiting a separate page.
+editor is the authoring interface: you write each enabled language's content (DE and EN on the
+live site) directly in the browser and hit **Publish** to trigger a rebuild. Story photos are kept
+out of git and Postgres: the app's **media library** stores optimized variants on the server and
+serves them from your image host (`https://img.simonswanderlust.com` on the live site). A post
+only ever references image **URLs** — and you can upload images inline from the editor without
+visiting a separate page.
+
+---
+
+## Language modes
+
+An install runs in one of four modes, chosen under **Settings → Languages** (*German primary,
+German + English*; *English primary, English + German*; *German only*; *English only*). The
+primary language is served at the site root and an optional secondary under `/<locale>/`.
+simonswanderlust.com is German-primary: German lives at `/<slug>/` and English at `/en/<slug>/`;
+an English-primary install serves English at the root and German under `/de/`. This guide uses the
+live site's DE/EN, DE-primary layout in its examples — substitute your install's languages.
+
+- The editor, Posts list, Pages and Journeys show only the enabled languages, primary first. A
+  single-language install has one tab and no language switcher on the public site.
+- The primary language **locks at the first publish**. Afterwards you can only add the secondary
+  language; changing the primary or removing a language is refused, so no published URL moves.
+  **Save languages & rebuild** describes the effect, asks for confirmation and rebuilds.
+- Each language keeps its own route words (`uber-mich`/`about-me`, `reiseziele`/`destinations`);
+  English at the root uses `/travel-map/` for the map page because the app owns `/map/*`. Story
+  and page slugs may not collide with those words or with app paths such as `admin`, `media` or
+  `login`, and `de`/`en` are reserved as first segments.
+- Which languages of a story go live is decided when you publish (see **Publish**). A language
+  left unselected stays a private draft.
 
 ---
 
@@ -56,7 +80,7 @@ into Postgres without manually re-authoring each one:
 4. **What happens** — The importer parses the export, downloads hero + body images from the live
    WordPress site (so the old site must be reachable during import), stores optimized variants
    through the app's image pipeline, and creates **draft posts** in Postgres. Slugs are preserved
-   exactly — DE posts at the root, EN under `/en/`. Structured travel fields (country, region,
+   exactly — the primary language at the root, the secondary under its prefix (on the live site DE at the root, EN under `/en/`). Structured travel fields (country, region,
    coordinates, keyFacts) are filled with placeholder values — open each draft in the editor to
    enrich them. Images are already re-hosted, so no manual re-upload is needed.
 5. **Refine and publish** — Open each draft in the editor, review the imported content, fill in
@@ -75,10 +99,9 @@ two different posts, or a slug equals another post's slug in the *other* languag
 are filed by slug, without a language) — is **rejected** with a warning naming the owner, and
 nothing is written. Resolve the slug in the editor and run the import again.
 
-**Untranslated stories:** The current importer requires a published DE/EN pair. A published
+**Untranslated stories:** The importer needs a Polylang translation group. A published
 German or English post without a Polylang translation group is counted individually as
-**Rejected**, with its unchanged slug and language in the warning list; a group missing its
-other published language is rejected too. Neither creates a draft nor downloads photos, even
+**Rejected**, with its unchanged slug and language in the warning list; a group without a story in the primary language is rejected too (a group lacking only the secondary-language story is imported with that language left empty). Items in a language that is not enabled are counted as **Skipped (disabled language)** and are never fetched. Neither refusal creates a draft nor downloads photos, even
 with **Replace existing drafts with the export** selected. An export containing only these
 refusals still completes as an import job with a rejection summary and zero planned work —
 it does not mean those stories were migrated. The five post counters sum to distinct Polylang
@@ -102,15 +125,16 @@ session cookie — no token to paste.
 in the editor with **Choose from library** (see Stage 2). Hero and title images are chosen
 from the library only; the editor has no direct upload for them.
 
-**Body / gallery photos** (the rest) — upload them inline from the editor's body toolbar:
-each upload inserts a markdown image (`![alt](URL)`) at the cursor and records the photo's
-dimensions automatically. Alternatively, pre-upload via the standalone upload page using a
-`trips/<slug>/<name>` key per photo and paste the returned `<BodyImage …/>` body snippet into
-the post body — it is converted to a markdown image on save. Write the German and English alt
-text by hand.
+**Body / gallery photos** (the rest) — in the editor's **Photo** toolbar panel, either **Upload
+and insert** a file (stored as `trips/<slug>/<name>`) or **Choose from library** for a photo that
+is already in Media. Either inserts a markdown image (`![alt](URL)`) at the cursor and records the
+photo's dimensions automatically. Write each language's alt text by hand; when you choose from the
+library and leave the alt field empty, that photo's Media alt text for the language is used.
+Pasted `<BodyImage …/>` tags (for example from an MDX backup) are converted to a markdown image
+on save.
 
-> Key naming: use `trips/<slug>/<name>` (lowercase `a–z 0–9 / _ -`). The `<slug>` should match
-> the post slug (below). Upload before publishing, or the URLs 404.
+> Inline uploads need that language's permalink filled in first, because it names the storage key
+> (`trips/<slug>/<name>`, lowercase `a–z 0–9 / _ -`). Upload before publishing, or the URLs 404.
 
 > The app accepts **one photo per upload request**; Media batches send separate identified
 > requests. Published variants keep only camera make/model, lens, capture date and exposure
@@ -135,6 +159,14 @@ for more writing space; the same icon in the rail (**Expand story details**) bri
 back. On phones, the panel icon at the end of the command bar opens a keyboard-managed
 drawer. Switching DE/EN preserves both languages' unsaved edits.
 
+The language tabs in the command bar list only the enabled languages, primary first. When a
+second language is enabled, **Translate** carries the latest unsaved draft into the other language
+through a browser-direct AI call ([#550](superpowers/specs/2026-11-07-issue-550-ai-article-translation.md)):
+after explicit consent and a full review you apply it to the other tab's draft; it never saves or
+publishes. In an empty language, **Draft with AI**
+([#579](superpowers/specs/2026-11-12-issue-579-ai-post-drafting.md)) turns a list of trip events
+into a first draft, again previewed first and applied only by you.
+
 **Visual** is the default editable writing view; select **Markdown** to edit the actual
 EasyMDE source and switch back to Visual when ready. Both views share one Markdown draft:
 visual edits update it synchronously, and opening a story or switching modes does not
@@ -145,9 +177,9 @@ If the visual editor cannot initialize, Markdown remains available for editing.
 On phones, less-used formatting is in the **Format** tray and **Details** opens the
 focus-managed inspector drawer.
 
-**Save draft**, **Publish** and **Review story** stay in the top command bar.
-**More actions** (or **More** on phones) contains Preview and, for published posts,
-Unpublish. The save indicator distinguishes **Not saved yet**, **Unsaved changes**,
+**Save draft** and **Publish** (admin-only) stay in the top command bar.
+**More actions** (or **More** on phones) contains **Save & preview**, **Review story** and, for
+published posts, **Unpublish**. The save indicator distinguishes **Not saved yet**, **Unsaved changes**,
 **Saving…** and **Saved to server**. Publish readiness is separate. A failed save
 leaves edits unsaved; edits typed while a save is running still need another save.
 Browser recovery copies do not mean the draft has been saved to the server.
@@ -240,8 +272,8 @@ An incompatible server response cannot mark the form saved.
 - A local stash is never proof of a server save. Only an acknowledgement or successful
   server check establishes what is stored.
 
-Alt-text warnings start as a compact, collapsed **Alt-text review** disclosure
-above the story, within the writing column. Expand it to see photos grouped by
+Alt-text findings start as a compact, collapsed disclosure (**Alt text to review: N photos**,
+marked advisory) above the story, within the writing column. Expand it to see photos grouped by
 language and issue. Selecting a photo opens the correct language and focuses its
 gallery alt field, selects its inline Markdown alt, or reveals its hero alt field.
 The audit reflects the last saved draft: save after repairs to refresh it. If a
@@ -265,30 +297,32 @@ Media may still be encoding: wait until it is ready before publishing.
 
 1. Sign in and open **Posts** (`/admin/posts.html`).
 2. Click **New post** — the editor opens at `/admin/editor.html`.
-3. Fill in the **German** tab first (the slug is set here and locked once published):
+3. Fill in the **primary-language** tab first (German on simonswanderlust.com). The permalink is locked once published:
 
    | Field | Notes |
    |-------|-------|
-   | **Slug** | Must match the live WordPress slug exactly — it becomes the URL (`/<slug>/`). It is derived from the title only while you have not typed into it (clear the field to re-derive); a slug loaded from the server — including an imported draft's — is never re-derived. Changing a saved draft's slug asks for confirmation naming both URLs; locked after publish. |
-   | **Title** | DE page title |
+   | **Permalink** | One per language, derived from that language's title only while you have not typed into it (clear the field to re-derive); a permalink loaded from the server — including an imported draft's — is never re-derived. The URL is `/<slug>/` for the primary language and `/<locale>/<slug>/` for the secondary. When migrating a live WordPress URL it must match exactly. Changing a saved draft's slug asks for confirmation naming both URLs; locked after publish. |
+   | **Title** | Story title for this language (the title field at the top of the writing area) |
    | **Date** | Publication / travel date (YYYY-MM-DD) |
    | **Country** | Localized country name |
-   | **Country code** | ISO-3166 alpha-2 (e.g. `GR`) |
+   | **Country (ISO)** | ISO-3166 alpha-2 (e.g. `GR`) |
    | **Region** | `europe` \| `asia` \| `africa` \| `north-america` \| `south-america` \| `oceania` \| `antarctica` — a region's destination page appears once it has a published story |
    | **Excerpt** | 1-2 sentence summary |
    | **Hero image** | Open Story details → **Choose from library**; edit alt text beside the preview and use **Adjust framing** for the focal point |
    | **Title image (optional)** | A separate wide photograph for the story header; choose it from the library in Story details, add alt text and adjust framing. Leave empty to use the hero |
    | **Coordinates** | `lat`, `lng` decimal |
-   | **Body** | Markdown, edited in Visual or in the EasyMDE Markdown source mode. Embed photos via the body toolbar's inline upload — it inserts a markdown image (`![alt](URL)`) and records the dimensions automatically. Pasted `<BodyImage …/>` tags (from an MDX backup or the upload page) also work: they're converted on save. |
+   | **Body** | Markdown, edited in Visual or in the EasyMDE Markdown source mode. Embed photos via the toolbar's **Photo** panel (upload or choose from the library) — it inserts a markdown image (`![alt](URL)`) and records the dimensions automatically. Pasted `<BodyImage …/>` tags (for example from an MDX backup) also work: they're converted on save. |
 
    If a code or gallery fence has no closing delimiter, the editor keeps the complete
    body in Markdown mode rather than saving new prose inside that block. Close the
    fence, then select **Visual** to resume rich editing.
 
-4. Switch to the **English** tab and fill in the EN fields (title, country, excerpt, key facts,
-   alt text, body) — **country** and **key facts** are per-locale and do NOT carry over from the
-   German tab, so enter the English country name (e.g. "Greece", not "Griechenland") here too.
-   The slug and shared fields (date, countryCode, region, coordinates) carry over automatically.
+4. Switch to the other enabled language's tab (English on simonswanderlust.com) and fill in its
+   fields (title, country, excerpt, key facts, alt text, body) — **country** and **key facts** are
+   per-language and do NOT carry over, so enter the English country name (e.g. "Greece", not
+   "Griechenland") here too. The secondary language is optional: leave it unselected at Publish to
+   keep it a private draft. The shared fields (date, country code, region, coordinates) apply to
+   both languages; each language has its own permalink.
 5. Click **Save draft** — both locale rows are written to Postgres. The post is not yet live.
 
 **Slug length (#353, rollout-gated):** the existing lowercase ASCII slug grammar is limited
@@ -355,10 +389,13 @@ If lookup is unavailable, enter coordinates manually.
 
 ### Publish
 
-Click **Publish** — this marks both locale rows as published, takes a **published snapshot** of
-the article content, and runs the rebuild
-in-process, awaiting it before the request returns. Wait for the confirmation toast, then verify
-the post is live at `/<slug>/` and `/en/<slug>/`.
+Click **Publish** (admins) — a dialog confirms the languages going live. The primary language is
+always published; a secondary that has been published before is locked in; any other secondary
+can be unchecked to stay a private draft (its content is kept). Each selected language shows its
+resulting URL and what is still missing, with a jump link to the field. Confirming saves the draft
+first, takes a **published snapshot** of the selected languages and runs the rebuild in-process,
+awaiting it before the request returns. Wait for the confirmation toast, then verify the post is
+live at its URL (`/<slug>/` and `/en/<slug>/` on the live site; paths follow your language mode).
 
 > See Stage 3 for what the rebuild does and how to trigger it manually (e.g. after a restore).
 
@@ -389,7 +426,7 @@ Restoring a revision does not reset conflict protection: a local recovery draft 
 on an older saved version still cannot overwrite a newer writer, and a recovery draft
 without a known base version remains blocked from saving.
 
-**More actions → Unpublish** returns both languages to draft and rebuilds the site.
+**More actions → Unpublish** returns the story (every published language) to draft and rebuilds the site.
 The previous release remains visible until that rebuild succeeds; if it fails, the
 old live pages remain until a successful rebuild. After your own successful unpublish,
 you can edit and **Save draft** in the same tab without reloading, provided nobody
@@ -678,8 +715,7 @@ manual editing; **Show gallery previews** returns to visual editing. Undo/redo
 continues to work through the Markdown editor. The inline view shows every photo
 in order for editing; use the article's **Preview** for its published layout.
 
-**The easy way: "Insert / edit gallery".** Each locale tab has the button next to "Insert body
-image". Put the cursor where the gallery should go — or anywhere inside an existing one — and it
+**The easy way: the Gallery button.** Each language's toolbar has **Gallery** next to **Photo**. Put the cursor where the gallery should go — or anywhere inside an existing one — and it
 opens the media library in multi-select mode. Click photos to add them, use ↑ / ↓ to set the order
 (that *is* the order they appear in), and × to drop one. Confirming writes the fence below for you;
 confirming with nothing selected removes the gallery. The photos already in the gallery are
@@ -885,7 +921,7 @@ page, and rebuild once. Unlike stories, pages have no separate published snapsho
 through the sanitized page renderer; save unsaved edits before using it.
 
 Ordinary editing shows only enabled languages. To prepare a new secondary language,
-use **Settings → Language → Prepare translations**, then select a page. Save title,
+use **Settings → Languages → Prepare {language} pages — About**, then select a page. Save title,
 slug and body in stages in that inactive-locale editor; these fields do not become
 public merely by saving. Return to Language settings and activate only after all
 published page blockers are complete. A revision loads into the editor for review;
@@ -912,10 +948,18 @@ If a rebuild fails after any committed action, the error explicitly says the dat
 was saved and the previous release is still serving: repair the failure and use
 **Rebuild site now**, rather than repeatedly resubmitting the obsolete page.
 
-**Delivery boundary:** #288 supplies this CMS/storage lifecycle and preview.
-Generic public Contact/Privacy/Legal routes and configurable navigation are #289;
-do not interpret a successful #288 rebuild as proof that those routes exist yet.
-DB backups, not posts-only MDX exports, preserve pages and navigation.
+**Public pages and navigation.** Published Contact, Privacy and Legal notice pages are rendered as
+ordinary public pages in each enabled language; About keeps its fixed path. New pages start with
+suggested slugs (`kontakt`/`contact`, `datenschutz`/`privacy`, `impressum`/`legal-notice`) that
+you may change until that language has been public. Links are managed under
+**Settings → Navigation** (admin): **Header** (up to 5 links), **Footer** (8) and **Legal strip**
+(4) take site sections (Home, Stories, Map, Destinations), pages (About, Contact, Privacy, Legal
+notice), relative paths and external HTTPS links, with optional per-language labels of 1–40
+characters (a blank label on a section or page uses the default text). **Save navigation &
+rebuild** stores the configuration and rebuilds the site; links to unpublished pages, missing
+translations or paths that are not emitted are left out of the built site, and the editor shows
+a "Not linked" notice. Social links come from **Site identity**. DB backups, not posts-only MDX
+exports, preserve pages and navigation.
 
 ## Stage 3 — How the rebuild works
 
@@ -945,7 +989,7 @@ compose has no `build:` key, so `docker compose up -d --build` doesn't even rebu
 use `docker build .` from the repo root instead.)
 
 To trigger a rebuild manually (e.g. after a database restore, or a template code change), sign in
-as an admin and use the **Rebuild site now** button on the settings page (`/admin/settings.html`),
+as an admin and use the **Rebuild site now** button on the settings page's **Site & backups** tab (`/admin/settings.html`),
 which calls the admin-only `POST /rebuild` route. From a shell on the host, without signing in:
 
 ```bash
@@ -978,8 +1022,8 @@ Notes:
 ## Quick checklist
 
 - [ ] Photos uploaded — hero and title images to Media, body images via the editor's inline upload (or Media); snippets/URLs ready.
-- [ ] In the editor: DE tab filled — slug (matches live WordPress slug, never renamed), title, date, country, countryCode, region, excerpt, heroImage fields, body photos inserted via the toolbar (or pasted `<BodyImage …/>` tags — converted on save) with DE alt text.
-- [ ] In the editor: EN tab filled — title, country (its own field — does not carry over from DE), excerpt, EN hero alt text, EN body with its own photo inserts (EN alt text).
+- [ ] In the editor: primary-language tab filled — permalink (a live WordPress slug is never renamed), title, date, country, country (ISO), region, excerpt, hero image (chosen from Media), body photos inserted via the toolbar's **Photo** (or pasted `<BodyImage …/>` tags — converted on save) with that language's alt text.
+- [ ] If a secondary language is enabled and wanted: its tab filled — permalink, title, country (its own field — does not carry over), excerpt, hero alt text, body with its own photo alt text. Otherwise leave it unselected at Publish.
 - [ ] **Save draft** — both locale rows written to Postgres; the live site is never affected by a save.
-- [ ] **Publish** — snapshots the content as the live version and triggers the rebuild automatically.
-- [ ] Verify the post renders at `/<slug>/` and `/en/<slug>/`, hero + body images load.
+- [ ] **Publish** — confirm the languages in the dialog; it snapshots the content as the live version and triggers the rebuild automatically.
+- [ ] Verify the post renders at its URL in each published language (`/<slug>/` and `/en/<slug>/` on the live site), hero + body images load.

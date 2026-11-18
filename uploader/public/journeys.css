@@ -16,13 +16,13 @@ body.journey-editor-page .cms-content {
   padding: 0;
 }
 body.journey-editor-page .commandbar {
-  padding: 0.625rem 2rem;
+  padding: 0.625rem max(2rem, calc((100% - var(--cms-content-max, 100rem)) / 2 + 2rem));
   margin-bottom: 0;
 }
 body.journey-editor-page #journeyLocales,
 body.journey-editor-page .journey-members-section {
   width: 100%;
-  max-width: 64rem;
+  max-width: var(--cms-content-max, 100rem);
   margin-inline: auto;
   padding-inline: 2rem;
 }

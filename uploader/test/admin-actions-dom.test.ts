@@ -3249,7 +3249,7 @@ describe('settings.html providers', () => {
 
   it('warns about plain HTTP for remote kinds only, and passes mixed-content warnings through', async () => {
     const { el } = await apiPage(settingsResponse(), {
-      mixedContentWarning: (url) => (url.startsWith('http://lan.example') ? 'fixture mixed content' : ''),
+      mixedContentWarning: (url) => (URL.parse(url)?.hostname === 'lan.example' ? 'fixture mixed content' : ''),
     });
     await el('addProvider').click();
     el('providerKind').value = 'custom';
@@ -4365,7 +4365,7 @@ describe('settings.html against the real settings and provider routes', () => {
     expect(el('providerName').value).toBe('Anthropic');
     expect(el('providerBaseUrl').value).toBe('https://api.anthropic.com/v1');
     await el('testProviderForm').click();
-    expect(fetcher.mock.calls.some(([url]) => String(url).startsWith('https://api.anthropic.com'))).toBe(false);
+    expect(fetcher.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/'))).toEqual([]);
     el('providerApiKey').value = 'fixture-created-key';
     await el('providerForm').fire('submit');
     const created = settings.get().aiProviders.find((p) => p.name === 'Anthropic');
@@ -4420,7 +4420,7 @@ describe('settings.html against the real settings and provider routes', () => {
     expect(el('providerName').value).toBe('OpenAI');
     expect(el('providerBaseUrl').value).toBe('https://api.openai.com/v1');
     await el('testProviderForm').click();
-    expect(fetcher.mock.calls.some(([url]) => String(url).startsWith('https://api.openai.com'))).toBe(false);
+    expect(fetcher.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/'))).toEqual([]);
     el('providerApiKey').value = 'fixture-created-key';
     await el('providerForm').fire('submit');
     const created = settings.get().aiProviders.find((p) => p.name === 'OpenAI');
@@ -4687,14 +4687,14 @@ describe('settings.html Compare quality', () => {
     },
   });
 
-  async function previewPage(respond: (body: FormData) => Promise<Response> | Response = () => encodedResponse()) {
+  async function previewPage(respond: (body: FormData) => Promise<Response> | Response = () => encodedResponse(), objectUrl?: string) {
     const sent: FormData[] = [];
     const created: string[] = [];
     const revoked: string[] = [];
     // Object URLs are the page's to create and revoke; record both.
     const PageURL = Object.assign(class extends URL {}, {
       createObjectURL: (_object: Blob) => {
-        const url = 'blob:preview-' + (created.length + 1);
+        const url = objectUrl ?? 'blob:preview-' + (created.length + 1);
         created.push(url);
         return url;
       },
@@ -4781,6 +4781,23 @@ describe('settings.html Compare quality', () => {
     await el('previewFile').fire('change');
     expect(revoked).toEqual(['blob:preview-1', 'blob:preview-2', 'blob:preview-3', 'blob:preview-4']);
     expect(el('previewResult').hidden).toBe(true);
+  });
+
+  it('refuses an object URL that is not a blob: URL and clears every pane', async () => {
+    const { el, created, revoked } = await previewPage(undefined, 'data:text/html,x');
+    // The harness keeps `src` as a plain property; make it reflect the attribute so a removed src is observable.
+    for (const id of ['previewOriginal', 'previewEncoded']) {
+      const img = el(id);
+      Object.defineProperty(img, 'src', { get: () => img.attrs.src ?? '', set: (v: string) => img.setAttribute('src', v), configurable: true });
+    }
+    el('previewFile').files = [photo()];
+    await el('previewRun').click();
+    expect(revoked).toEqual(created);
+    expect(created).toHaveLength(2);
+    for (const id of ['previewOriginal', 'previewEncoded', 'previewResult']) expect(el(id).hidden).toBe(true);
+    for (const id of ['previewOriginal', 'previewEncoded']) expect(el(id).getAttribute('src')).toBeNull();
+    expect(el('previewOut').textContent).toBe('Could not generate the preview.');
+    expect(el('previewRun').disabled).toBe(false);
   });
 
   it.each([
