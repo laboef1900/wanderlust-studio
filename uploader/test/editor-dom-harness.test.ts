@@ -76,6 +76,20 @@ describe('harness markup parser: comments and scripts', () => {
     expect(shape(doc.document.body!)).toEqual([{ SCRIPT: ['a', { B: ['c'] }, 'd'] }]);
     expect(doc.scripts).toEqual([]);
   });
+
+  it('serializes an unterminated page-load script exactly as an ordinary element', () => {
+    const doc = parse('<div><script>foo &amp; bar</div>');
+    expect(doc.document.querySelector('script')!.outerHTML).toBe('<script>foo &amp; bar</script>');
+    expect(doc.document.body!.outerHTML).toBe('<body><div><script>foo &amp; bar</script></div></body>');
+    expect(doc.scripts).toEqual([]);
+  });
+
+  it('collects a nested script on a page load as one script and leaves xc and z text runs', () => {
+    const doc = parse('x<script>a<script>b</script>c</script>z');
+    expect(doc.scripts).toEqual([{ src: null, text: 'a<script>b' }]);
+    expect(doc.document.querySelector('script')).toBeNull();
+    expect(shape(doc.document.body!)).toEqual(['xc', 'z']);
+  });
 });
 
 describe('harness markup parser: what ends a text run', () => {
@@ -125,17 +139,81 @@ describe('harness markup parser: markup is never joined or eaten across removed 
 });
 
 describe('harness markup parser: innerHTML', () => {
-  it('parses assigned markup the same way and replaces the old children', () => {
+  it('replaces the old children and keeps a terminated script as an inert node', () => {
     const host = parse('<div>old</div>').document.createElement('div');
     host.innerHTML = 'old';
     host.innerHTML = 'a<!-- x -->b<script>x</script>c<p>d</p>';
-    expect(shape(host)).toEqual(['abc', { P: ['d'] }]);
-    expect(host.querySelector('script')).toBeNull();
+    expect(shape(host)).toEqual(['ab', { SCRIPT: ['x'] }, 'c', { P: ['d'] }]);
+    expect(host.querySelector('script')!.textContent).toBe('x');
   });
 
   it('splits and decodes like a page load', () => {
     const host = parse('').document.createElement('div');
     host.innerHTML = '&am<!-- -->p;<!x>b';
     expect(shape(host)).toEqual(['&', 'b']);
+  });
+
+  it('leaves a page load\'s collected scripts unchanged when an element is assigned a script', () => {
+    const doc = parse('<script src="/page.js">a</script><div id="host">b</div>');
+    doc.document.getElementById('host')!.innerHTML = '<script src="/assigned.js">c</script>';
+    expect(doc.scripts).toEqual([{ src: '/page.js', text: 'a' }]);
+    expect(doc.document.getElementById('host')!.querySelector('script')!.textContent).toBe('c');
+  });
+
+  it('appends an assigned script to the innermost element still open', () => {
+    const host = parse('').document.createElement('div');
+    host.innerHTML = '<section><span>a<script>bad()</script>b</span></section>';
+    expect(shape(host)).toEqual([{ SECTION: [{ SPAN: ['a', { SCRIPT: ['bad()'] }, 'b'] }] }]);
+  });
+
+  it('gives an empty assigned script no children', () => {
+    const host = parse('').document.createElement('div');
+    host.innerHTML = 'a<script src="/x.js"></script>b';
+    expect(host.querySelector('script')!.childNodes).toHaveLength(0);
+    expect(shape(host)).toEqual(['a', { SCRIPT: [] }, 'b']);
+  });
+
+  it('round-trips the assigned script\'s raw text through innerHTML and outerHTML', () => {
+    const markup = '<script>if (a < b) f("<b>&amp;")</script>';
+    const host = parse('').document.createElement('div');
+    host.innerHTML = markup;
+    const script = host.querySelector('script')!;
+    expect(script.textContent).toBe('if (a < b) f("<b>&amp;")');
+    expect(script.innerHTML).toBe('if (a < b) f("<b>&amp;")');
+    expect(script.outerHTML).toBe(markup);
+    expect(host.innerHTML).toBe(markup);
+  });
+
+  it('parses the assigned script\'s attributes in order, including a boolean attribute', () => {
+    const host = parse('').document.createElement('div');
+    host.innerHTML = '<script defer src="/a.js" data-caption="a &amp; b">x</script>';
+    const script = host.querySelector('script')!;
+    expect(script.outerHTML).toBe('<script defer="" src="/a.js" data-caption="a &amp; b">x</script>');
+    expect(script.hasAttribute('defer')).toBe(true);
+    expect(script.getAttribute('defer')).toBe('');
+    expect(script.getAttribute('src')).toBe('/a.js');
+    expect(script.getAttribute('data-caption')).toBe('a & b');
+  });
+});
+
+describe('harness markup parser: assertions over innerHTML subtrees see assigned scripts', () => {
+  it('sees the gallery caption script through querySelectorAll', () => {
+    const root = parse('').document.createElement('div');
+    root.innerHTML = 'capton="<script>bad</script>"';
+    expect(root.querySelectorAll('script')).toHaveLength(1);
+    expect(root.querySelectorAll('script')[0]!.textContent).toBe('bad');
+  });
+
+  it('sees the review script through querySelectorAll, isolating the script member of the union selector', () => {
+    const root = parse('').document.createElement('div');
+    root.innerHTML = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+    expect(root.querySelectorAll('script')).toHaveLength(1);
+    expect(root.querySelectorAll('script')[0]!.textContent).toBe('alert(2)');
+  });
+
+  it('sees the translation script through querySelector on the dialog element', () => {
+    const dialog = parse('').document.createElement('dialog');
+    dialog.innerHTML = '<script>example</script>';
+    expect(dialog.querySelector('script')!.textContent).toBe('example');
   });
 });

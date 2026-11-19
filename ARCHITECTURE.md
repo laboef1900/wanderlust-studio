@@ -810,9 +810,15 @@ normal close restores the trigger. Review output is rendered as text and is not 
 `site/src/lib/article-translation.ts` uses the canonical source parser and positioned text
 to extract bounded article-local slots, then reconstructs and validates the complete target
 against the original document structure. Authenticated, no-store `POST /translation/prepare`
-and `/translation/validate` never write content or contact a provider. URLs, image identities,
-dimensions, gallery directives and occurrence boundaries remain source-owned; Media remains
-authoritative. Unsupported source and locally targeted headings remain unchanged.
+and `/translation/validate` never write content or contact a provider. Link destinations
+(except the validated counterpart exchange from the optional relative-path map), image
+identities, dimensions, gallery directives and occurrence boundaries remain source-owned;
+Media remains authoritative. Unsupported source and locally targeted headings remain unchanged.
+
+`GET /internal-links` publishes the live internal-page catalog and its locale map for the
+editor's picker and translation hand-off. `POST /internal-links/analyze` runs the shared
+`site/src/lib/markdown-link-selection.ts` parser on the editor's selection and returns the exact
+node kind/ranges, so the Markdown link action never re-implements CommonMark in the browser.
 
 `public/editor-translation.js` owns explicit consent, current-draft/configuration checks,
 review and replacement confirmation. `LLM.translateArticle` sends only text slots from the

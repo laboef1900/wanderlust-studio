@@ -80,6 +80,19 @@ describe('story slug byte bound (#353)', () => {
 });
 
 describe('memoryPostStore', () => {
+  it('projects committed locales from the snapshot, not the working row', async () => {
+    const store = memoryPostStore();
+    const saved = await store.upsertDraft(pair());
+    const tk = saved.translationKey;
+    expect((await store.list()).find((row) => row.translationKey === tk)!.publishedLocales).toEqual({ de: null, en: null });
+    await store.publish(tk, await publishTokens(store, tk));
+    const published = (await store.list()).find((row) => row.translationKey === tk)!;
+    expect(published.publishedLocales.de).toEqual({ slug: 'bukarest', title: 'Bukarest', region: 'europe' });
+    expect(published.publishedLocales.en).toEqual({ slug: 'bucharest', title: 'Bucharest', region: 'europe' });
+    await store.unpublish(tk);
+    expect((await store.list()).find((row) => row.translationKey === tk)!.publishedLocales).toEqual({ de: null, en: null });
+  });
+
   it('compares content, not save timestamps; no-op saves and reverted edits have no pending draft', async () => {
     const store = memoryPostStore();
     const saved = await store.upsertDraft(pair());

@@ -6,6 +6,45 @@ Historical release notes follow. They record release-specific changes, not a pro
 
 ### Cutting a release
 
+**v0.27.0 — internal link picker, AI story-review answers, signed releases** (linux/amd64 and linux/arm64,
+`ghcr.io/laboef1900/wanderlust-studio:0.27.0`). Changes since v0.26.2 (PRs #636–#639):
+
+- **Editor internal links** (#637): one shared link dialog (`uploader/public/link-dialog.js`) offers the
+  active locale's page catalog alongside a free address. Visual mode keeps TipTap's link contract;
+  Markdown mode asks `POST /internal-links/analyze` for the exact CommonMark node
+  (`site/src/lib/markdown-link-selection.ts`), so only a link's destination is retargeted — references,
+  definitions, images, code and HTML blocks are refused. `GET /internal-links` serves the catalog. Article
+  translation now remaps internal link and definition destinations to the published counterpart
+  (`site/src/lib/article-translation.ts`) and leaves unmapped targets unchanged with a warning.
+- **AI story review** (#630/#636): the review is a centered modal; `practicalDetails` is now a separate
+  schema field with labelled answer boxes, optional notes and outbound disclosure. New
+  `reviewUpdatePrompt` setting: the model integrates those answers into the article, shown as a
+  line-level diff with a read-only preview, explicit **Apply updated article** and a guarded Undo.
+  Fences/galleries, images, links/references, raw HTML, heading order and the no-new-H1 rule are
+  checked deterministically before an update can be applied.
+- **Release and CI hardening** (#639): branch protection now requires all six CI jobs. A new `image` job
+  builds the release image (no push) when image inputs change. `release.yml` keyless-signs each qualified
+  candidate digest and attests a CycloneDX SBOM, then signs the promoted index digest and verifies that
+  signature against the release workflow's OIDC identity before creating the GitHub Release (fail-closed);
+  both SBOMs are attached as assets. SLSA provenance is explicitly not claimed.
+- **Test harness** (#638): the editor DOM harness keeps a terminated `<script>` assigned through
+  `innerHTML` as an inert node, so the hostile-input injection assertions fail if markup reaches the page
+  that way. No production code changed.
+
+Upgrade notes for v0.26.2 → v0.27.0 (the [release recovery checklist](../ARCHITECTURE.md#release-recovery-checklist)):
+
+- **Image and deployment:** apply this release's image tag (`0.27.0`). Both `site/` and `uploader/`
+  package manifests are updated to `0.27.0`.
+- **Schema, dumps and settings:** no schema, constraint, data, or dump-format change; writer stays **v15**
+  and reads v1–v15 (`v1–v9` cannot supply private GPX routes). The new review-update instruction lives in
+  the existing settings storage; the code-owned default applies until an author customizes it.
+- **Compose and `.env`:** no changes.
+- **Reserved routes:** `internal-links` is now an app-owned route segment, so no page slug may use it.
+- **Rebuild:** not required — the link picker, review update and link remapping are admin-side, and already
+  published pages render unchanged.
+- **Recovery:** roll-forward only; no supported downgrade (capture a generation-coherent backup per
+  the checklist before upgrading).
+
 **v0.26.2 — gallery EXIF lightbox, draft navigation guard, security hardening** (linux/amd64 and linux/arm64,
 `ghcr.io/laboef1900/wanderlust-studio:0.26.2`). Both `v0.26.0` and `v0.26.1` failed in release
 qualification before publishing (`v0.26.0` hit `docker image inspect --platform` on the runner Docker

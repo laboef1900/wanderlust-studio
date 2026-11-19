@@ -113,13 +113,20 @@
               <p class="use-case-resolved"><span id="reviewResolved"></span> <span id="reviewDestination" class="use-case-url"></span></p>
               <p id="reviewProviderWarn" class="notice-warn" role="status" hidden></p>
             </div>
-            <details class="help-details settings-advanced">
+            <details class="help-details settings-advanced" id="reviewAdvanced">
               <summary data-settings-copy="settingsAdvanced"></summary>
               <label for="reviewTimeoutSeconds" id="reviewTimeoutLabel"></label>
               <input id="reviewTimeoutSeconds" type="number" min="5" max="300" step="0.001" />
               <label for="reviewPrompt" id="reviewPromptLabel"></label>
               <textarea id="reviewPrompt" rows="8" aria-describedby="reviewPromptHelp"></textarea>
               <p id="reviewPromptHelp" class="muted"></p>
+              <label for="reviewUpdatePrompt" id="reviewUpdatePromptLabel"></label>
+              <textarea id="reviewUpdatePrompt" rows="8" required aria-describedby="reviewUpdatePromptHelp reviewUpdatePromptCount"></textarea>
+              <p id="reviewUpdatePromptHelp" class="muted"></p>
+              <div class="settings-field-meta">
+                <p id="reviewUpdatePromptCount" class="muted"></p>
+                <button id="reviewUpdatePromptReset" type="button" class="btn-secondary btn-sm" data-settings-copy="settingsReviewUpdatePromptReset" disabled></button>
+              </div>
             </details>
             <div class="form-actions">
               <button id="testReview" type="button" class="btn-secondary btn-sm" aria-describedby="reviewTestHelp"></button>
@@ -675,6 +682,7 @@
         recoveryRebuild: 'recoveryRebuild', recoveryRetention: 'recoveryRetention',
         reviewPrivacy: 'writingPrivacy', reviewTimeoutLabel: 'writingTimeout', reviewPromptLabel: 'writingInstructions',
         reviewPromptHelp: 'writingInstructionsHelp', testReview: 'reviewTestLabel',
+        reviewUpdatePromptLabel: 'settingsReviewUpdatePrompt', reviewUpdatePromptHelp: 'settingsReviewUpdatePromptHelp',
         captionMaxTokensLabel: 'captionMaxTokensLabel', captionMaxTokensHelp: 'captionMaxTokensHelp',
       })) $(id).textContent = copy[key];
       $('settingsTabs').setAttribute('aria-label', copy.settingsNav);
@@ -773,6 +781,7 @@
       // The server's default instructions from the last settings response, for Reset.
       let translationPromptDefault = null;
       let draftingPromptDefault = null;
+      let reviewUpdatePromptDefault = null;
       const modelCache = new Map();   // provider id -> { baseUrl, models } listed from this browser
       const modelLookups = new Map(); // provider id -> { baseUrl, promise } while a listing runs
       const modelFailures = new Map(); // provider id -> { baseUrl, reason } of the last failed listing
@@ -1432,6 +1441,12 @@
           max: () => LLM.DRAFTING_PROMPT_MAX_LENGTH, problem: (value) => LLM.draftingPromptProblem(value),
           defaultValue: () => draftingPromptDefault,
         },
+        reviewUpdate: {
+          field: 'reviewUpdatePrompt', count: 'reviewUpdatePromptCount', reset: 'reviewUpdatePromptReset',
+          advanced: 'reviewAdvanced', copyPrefix: 'settingsReviewUpdatePrompt',
+          max: () => LLM.REVIEW_UPDATE_PROMPT_MAX_LENGTH, problem: (value) => LLM.reviewUpdatePromptProblem(value),
+          defaultValue: () => reviewUpdatePromptDefault,
+        },
       };
       /** Instructions copy with {count}, {max} and {over} filled in from the field. */
       function instructionsText(row, suffix) {
@@ -1471,6 +1486,7 @@
           setModel(USE_CASES.review, s.aiModel);
           $('reviewPrompt').value = s.reviewPrompt;
           $('reviewTimeoutSeconds').value = s.reviewTimeoutMs / 1000;
+          $('reviewUpdatePrompt').value = s.reviewUpdatePrompt;
           setModel(USE_CASES.caption, s.lmModel);
           $('captionPrompt').value = s.captionPrompt;
           $('captionTimeoutSeconds').value = s.captionTimeoutMs / 1000;
@@ -1499,6 +1515,7 @@
         $('testReview').disabled = false;
         translationPromptDefault = LLM.isTranslationPrompt(s.translationPromptDefault) ? s.translationPromptDefault : null;
         draftingPromptDefault = LLM.isDraftingPrompt(s.draftingPromptDefault) ? s.draftingPromptDefault : null;
+        reviewUpdatePromptDefault = LLM.isReviewUpdatePrompt(s.reviewUpdatePromptDefault) ? s.reviewUpdatePromptDefault : null;
         for (const row of Object.values(INSTRUCTIONS)) $(row.reset).disabled = row.defaultValue() === null;
       }
 
@@ -1541,6 +1558,7 @@
           aiModel: USE_CASES.review.current,
           lmModel: USE_CASES.caption.current,
           reviewPrompt: $('reviewPrompt').value,
+          reviewUpdatePrompt: $('reviewUpdatePrompt').value,
           reviewTimeoutMs: Math.round(Number($('reviewTimeoutSeconds').value) * 1000),
           captionPrompt: $('captionPrompt').value,
           captionTimeoutMs: Math.round(Number($('captionTimeoutSeconds').value) * 1000),

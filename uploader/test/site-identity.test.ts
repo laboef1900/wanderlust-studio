@@ -3,10 +3,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mergeIdentityEdit, memorySiteIdentityStore } from '../src/site-identity.js';
-import { LEGACY_IDENTITY, LEGACY_REVIEW_PROMPT } from '../src/site-identity-legacy.js';
+import { LEGACY_IDENTITY, LEGACY_REVIEW_PROMPT, PRE_630_LEGACY_REVIEW_PROMPT } from '../src/site-identity-legacy.js';
 import { createSettingsStore, defaultSettings } from '../src/settings.js';
 import { neutralIdentity, toIdentitySnapshot } from '../../site/src/lib/site-identity.js';
-import { DEFAULT_REVIEW_PROMPT } from '../src/editorial-review.js';
+import { DEFAULT_REVIEW_PROMPT, PRE_630_REVIEW_PROMPT } from '../src/editorial-review.js';
 
 describe('identity edit storage boundary', () => {
   it.each(['de', 'en'] as const)('keeps inactive text through an active-only %s save and re-enabling projection', (active) => {
@@ -52,6 +52,12 @@ describe('upgrade review prompt preservation', () => {
     expect(DEFAULT_REVIEW_PROMPT).not.toMatch(/Simon|Wanderlust/);
     expect(LEGACY_REVIEW_PROMPT.split('\n').slice(1)).toEqual(DEFAULT_REVIEW_PROMPT.split('\n').slice(1));
     expect(LEGACY_REVIEW_PROMPT.split('\n')[0]).toBe("You are an editorial and SEO reviewer for Simon's Wanderlust, a personal travel blog.");
+  });
+  it('keeps the exact pre-#630 legacy prompt for the in-memory upgrade, branded and without altText', () => {
+    expect(PRE_630_LEGACY_REVIEW_PROMPT.split('\n')[0]).toBe(LEGACY_REVIEW_PROMPT.split('\n')[0]);
+    expect(PRE_630_LEGACY_REVIEW_PROMPT.split('\n').slice(1)).toEqual(PRE_630_REVIEW_PROMPT.split('\n').slice(1));
+    expect(PRE_630_LEGACY_REVIEW_PROMPT).not.toContain('altText');
+    expect(LEGACY_REVIEW_PROMPT).toContain('altText');
   });
   it('persists the legacy prompt once for a clean file without the key, preserving other settings', async () => {
     const path = await settingsFile(JSON.stringify({ backupSchedule: 'daily' }));

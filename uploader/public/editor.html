@@ -654,27 +654,27 @@
     <dialog id="storyReviewDialog" class="story-review" aria-labelledby="storyReviewHeading" aria-describedby="reviewAdvisory">
       <header class="story-review__header">
         <div>
-          <h2 id="storyReviewHeading">Story review</h2>
+          <h2 id="storyReviewHeading"></h2>
           <p id="reviewLocale" class="muted"></p>
         </div>
-        <button id="closeReview" type="button" class="btn-secondary" autofocus>Close review</button>
+        <button id="closeReview" type="button" class="btn-secondary" autofocus></button>
       </header>
       <div class="story-review__body">
-        <p id="reviewAdvisory" class="story-review__advisory">A snapshot of this language’s unsaved draft. Suggestions are advisory: nothing is saved or published, and body text is never replaced.</p>
+        <p id="reviewAdvisory" class="story-review__advisory"></p>
         <p id="reviewDestination" class="review-destination" hidden></p>
         <p id="reviewData" class="story-review__advisory"></p>
         <section class="story-review__section" aria-labelledby="reviewInstantHeading">
-          <h3 id="reviewInstantHeading">Quick checks</h3>
+          <h3 id="reviewInstantHeading"></h3>
           <div id="reviewInstant" class="review-results"></div>
         </section>
         <section class="story-review__section" aria-labelledby="reviewSemanticHeading">
-          <h3 id="reviewSemanticHeading">Editorial suggestions</h3>
+          <h3 id="reviewSemanticHeading"></h3>
           <div id="reviewStatus" class="review-status" role="status" aria-live="polite" aria-atomic="true"></div>
           <div id="reviewSemantic" class="review-results"></div>
         </section>
       </div>
       <footer class="story-review__footer">
-        <p class="muted">Check suggestions for accuracy before applying.</p>
+        <p id="reviewFooterNote" class="muted"></p>
         <button id="runReview" type="button" class="btn-secondary" aria-describedby="reviewDestination reviewData" disabled></button>
       </footer>
     </dialog>
@@ -741,6 +741,7 @@
     <script src="/admin/language.js"></script>
     <script src="/admin/admin-ui.js"></script>
     <script src="/admin/admin-confirm.js"></script>
+    <script src="/admin/link-dialog.js"></script>
     <script src="/admin/draft-guard.js"></script>
     <script src="/admin/write-recovery.js"></script>
     <script src="/admin/vendor/easymde.min.js"></script>
@@ -782,6 +783,12 @@
       const $ = (id) => document.getElementById(id);
       const editorCopy = EditorCopy.en;
       $('inspectorToggleLabel').textContent = editorCopy.details;
+      $('storyReviewHeading').textContent = editorCopy.reviewHeading;
+      $('closeReview').textContent = editorCopy.reviewClose;
+      $('reviewAdvisory').textContent = editorCopy.reviewAdvisory;
+      $('reviewInstantHeading').textContent = editorCopy.reviewInstantHeading;
+      $('reviewSemanticHeading').textContent = editorCopy.reviewSemanticHeading;
+      $('reviewFooterNote').textContent = editorCopy.reviewFooterNote;
 
       // ---- state ----
       let currentTk = null;       // translationKey, null = new post
@@ -887,7 +894,7 @@
         autoDownloadFontAwesome: false,
         autosave: { enabled: false },
         toolbar: false,
-        shortcuts: { togglePreview: null, toggleSideBySide: null, toggleFullScreen: null },
+        shortcuts: { togglePreview: null, toggleSideBySide: null, toggleFullScreen: null, drawLink: null },
       };
       const deMDE = new EasyMDE({ ...MDE_OPTIONS, element: $('deBody') });
       const enMDE = new EasyMDE({ ...MDE_OPTIONS, element: $('enBody') });
@@ -1213,6 +1220,10 @@
         bodyEditors[locale].setMode('markdown');
         galleryEditors[locale].revealLine(line);
       }
+      const linkDialog = InternalLinkDialog.create({
+        copy: editorCopy,
+        onUnauthed: () => guard.redirectToLogin(),
+      });
       function wireManuscriptBar(locale) {
         const bar = $(locale + 'ManuscriptBar');
         // Roving focus, the phone Format tray and the formatting buttons are
@@ -1223,6 +1234,7 @@
           onOpenFormat: () => closePhotoPanel(locale),
           isVisual: () => bodyEditors[locale].isVisual(),
           command: (name) => bodyEditors[locale].command(name),
+          linkAction: () => linkDialog.markdown(mdeFor(locale).codemirror, locale, setStatus),
           markdown: (action) => EasyMDE[action](mdeFor(locale)),
         });
         const closeFormat = tools.closeFormat;
@@ -1232,6 +1244,7 @@
           galleryToggle: $(locale + 'GalleryView'), formatButtons: bar.querySelectorAll('[data-format]'),
           locale, imageOrigin: EditorGalleryImageOrigin, copy: editorCopy, galleryCopy: EditorGalleryCopy.en,
           galleryLibrary, images: () => locale === 'de' ? deImages : enImages, thumbnailUrl: PostsFilter.thumbUrl,
+          askLink: (current) => linkDialog.open({ current, locale }),
           onEditGallery: (sourceStart) => galleryFor(locale, sourceStart),
           onModeChange: () => {
             articleTranslation?.invalidate();
@@ -1240,6 +1253,7 @@
             tools.settle();
           },
         });
+        linkDialog.wireMarkdown(mdeFor(locale).codemirror, locale, setStatus);
         const toggle = $(locale + 'PhotoToggle');
         toggle.addEventListener('click', () => {
           closeFormat();
@@ -1347,6 +1361,27 @@
         }),
         isCurrent: (snapshot) => snapshot.identity === currentTk && snapshot.story.locale === activeTab,
         apply: (locale, field, value) => {
+          if (field === 'markdown') {
+            // #630: only the active-locale unsaved body. One source transaction so
+            // CodeMirror history stays and the rich bridge follows; fieldsApplying
+            // keeps onBodyChange from closing the review mid-apply. Title, excerpt,
+            // slug, images, shared fields and the other locale are never touched.
+            const cm = mdeFor(locale).codemirror;
+            fieldsApplying = true;
+            try {
+              bodyEditors[locale].sourceTransaction(() => {
+                if (cm.getValue() !== value) {
+                  cm.replaceRange(value, { line: 0, ch: 0 }, cm.posFromIndex(cm.getValue().length), 'story-review-update');
+                }
+              }, () => {});
+            } finally { fieldsApplying = false; }
+            excerptAssist?.invalidate();
+            galleryEditors[locale].refresh();
+            guard.markDirty();
+            guard.stashNow();
+            updateLocaleChip();
+            return;
+          }
           const input = $(locale + (field === 'title' ? 'Title' : 'Excerpt'));
           input.value = value;
           // Reuse both dirty tracking and #122's loaded/manual/automatic slug rules.
@@ -2503,6 +2538,7 @@
       }
       articleTranslation = EditorTranslation.create({
         copy: editorCopy, capture: translationSnapshot, flush: flushGalleryEdits, commit: (locale, patch) => commitFields(locale, patch),
+        linkMap: (sourceLocale) => linkDialog.map(sourceLocale),
         availability: () => ({ locales: language?.locales || [], blocked: loadBlocked || pendingSaves > 0 || writeRecovery.unresolved() }),
         didCommit: (locale) => {
           storyReview?.invalidate();

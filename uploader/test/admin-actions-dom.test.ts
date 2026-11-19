@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import { createSettingsStore, defaultSettings } from '../src/settings.js';
 import { DEFAULT_TRANSLATION_PROMPT } from '../src/translation-prompt.js';
 import { DEFAULT_DRAFTING_PROMPT } from '../src/drafting-prompt.js';
+import { DEFAULT_REVIEW_UPDATE_PROMPT } from '../src/editorial-review.js';
 import { buildServer } from '../src/server.js';
 import { memoryUserStore } from '../src/users.js';
 import { memorySessionStore } from '../src/sessions.js';
@@ -2345,6 +2346,8 @@ interface SettingsResponse {
   draftingPromptDefault: string;
   aiModel: string;
   reviewPrompt: string;
+  reviewUpdatePrompt: string;
+  reviewUpdatePromptDefault: string;
   reviewTimeoutMs: number;
   lmModel: string;
   captionPrompt: string;
@@ -2375,7 +2378,8 @@ function settingsResponse(overrides: Partial<SettingsResponse> = {}): SettingsRe
     translationPrompt: 'Translation prompt', translationPromptDefault: DEFAULT_TRANSLATION_PROMPT,
     draftingProviderId: null, draftingModel: 'drafting-model', draftingTimeoutMs: 120000,
     draftingPrompt: 'Drafting prompt', draftingPromptDefault: DEFAULT_DRAFTING_PROMPT,
-    aiModel: 'review-model', reviewPrompt: 'Review prompt', reviewTimeoutMs: 60000,
+    aiModel: 'review-model', reviewPrompt: 'Review prompt', reviewUpdatePrompt: 'Update prompt',
+    reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT, reviewTimeoutMs: 60000,
     lmModel: 'vision-model', captionPrompt: 'Caption prompt', captionTimeoutMs: 60000, captionMaxTokens: 8000, captionMaxEdge: 768,
     backupSchedule: 'off', backupRetention: 14, convertJpeg: true, webpQuality: 75, avifQuality: 55,
     importDelayMs: 1200, importRetries: 3, commentsEnabled: false,
@@ -2390,6 +2394,7 @@ function settingsResponse(overrides: Partial<SettingsResponse> = {}): SettingsRe
 const browserLlm: { LLM?: {
   TRANSLATION_PROMPT_MAX_LENGTH: number; isTranslationPrompt(value: unknown): boolean; translationPromptProblem(value: unknown): string | null;
   DRAFTING_PROMPT_MAX_LENGTH: number; isDraftingPrompt(value: unknown): boolean; draftingPromptProblem(value: unknown): string | null;
+  REVIEW_UPDATE_PROMPT_MAX_LENGTH: number; isReviewUpdatePrompt(value: unknown): boolean; reviewUpdatePromptProblem(value: unknown): string | null;
 } } = {};
 vm.runInNewContext(readFileSync('public/llm.js', 'utf8'), { window: browserLlm });
 const PROMPT_RULES = {
@@ -2399,6 +2404,9 @@ const PROMPT_RULES = {
   DRAFTING_PROMPT_MAX_LENGTH: browserLlm.LLM!.DRAFTING_PROMPT_MAX_LENGTH,
   isDraftingPrompt: browserLlm.LLM!.isDraftingPrompt,
   draftingPromptProblem: browserLlm.LLM!.draftingPromptProblem,
+  REVIEW_UPDATE_PROMPT_MAX_LENGTH: browserLlm.LLM!.REVIEW_UPDATE_PROMPT_MAX_LENGTH,
+  isReviewUpdatePrompt: browserLlm.LLM!.isReviewUpdatePrompt,
+  reviewUpdatePromptProblem: browserLlm.LLM!.reviewUpdatePromptProblem,
 };
 
 function loadSettingsPage(extra: Record<string, unknown> = {}) {
@@ -3625,7 +3633,7 @@ describe('settings.html use case assignments', () => {
     expect(calls(page.requests)).toEqual(['POST /settings']);
     expect(page.requests[0]!.body).toEqual({
       reviewProviderId: null, captionProviderId: null, aiModel: 'review-model', lmModel: 'vision-model',
-      reviewPrompt: 'Review prompt', reviewTimeoutMs: 60000, captionPrompt: 'Caption prompt',
+      reviewPrompt: 'Review prompt', reviewUpdatePrompt: 'Update prompt', reviewTimeoutMs: 60000, captionPrompt: 'Caption prompt',
       captionTimeoutMs: 60000, captionMaxEdge: 768, captionMaxTokens: 8000,
       translationProviderId: 'deepseek', translationModel: 'translation-2', translationTimeoutMs: 130123,
       translationPrompt: 'Translation prompt',
@@ -3755,7 +3763,7 @@ describe('settings.html use case assignments', () => {
     expect(calls(page.requests)).toEqual(['POST /settings']);
     expect(page.requests[0]!.body).toEqual({
       reviewProviderId: 'openrouter', captionProviderId: null, aiModel: 'review-2', lmModel: 'vision-2',
-      reviewPrompt: 'R', reviewTimeoutMs: 45123, captionPrompt: 'C', captionTimeoutMs: 30001, captionMaxEdge: 1024,
+      reviewPrompt: 'R', reviewUpdatePrompt: 'Update prompt', reviewTimeoutMs: 45123, captionPrompt: 'C', captionTimeoutMs: 30001, captionMaxEdge: 1024,
       captionMaxTokens: 4096,
       translationProviderId: null, translationModel: 'translation-model', translationTimeoutMs: 120000,
       translationPrompt: 'Translation prompt',
@@ -3962,6 +3970,97 @@ describe('settings.html translation instructions', () => {
   });
 });
 
+describe('settings.html practical-details update instructions (#630)', () => {
+  const MAX = PROMPT_RULES.REVIEW_UPDATE_PROMPT_MAX_LENGTH;
+  const DESCRIBED_BY = 'reviewUpdatePromptHelp reviewUpdatePromptCount';
+  const counted = (length: number) => length + ' of ' + MAX + ' characters';
+
+  /** The textarea hung under its real disclosure, so AdminField's error line lands beside it. */
+  async function reviewUpdatePage(overrides: Partial<SettingsResponse> = {}) {
+    const page = await apiPage(settingsResponse(overrides));
+    const advanced = page.el('reviewAdvanced');
+    const field = page.el('reviewUpdatePrompt');
+    advanced.appendChild(field);
+    const error = () => advanced.children[advanced.children.indexOf(field) + 1];
+    return { ...page, field, advanced, error, doc: documentOf(page) };
+  }
+  const type = (field: Element, value: string) => {
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  it('shows the saved instructions with their character count and makes Reset available', async () => {
+    const saved = 'Work answers into the body without rewriting the route.';
+    const { el, field } = await reviewUpdatePage({ reviewUpdatePrompt: saved });
+    expect(field.value).toBe(saved);
+    expect(el('reviewUpdatePromptCount').textContent).toBe(counted(saved.length));
+    expect(el('reviewUpdatePrompt').getAttribute('aria-describedby')).toBe(DESCRIBED_BY);
+    expect(el('reviewUpdatePromptReset').disabled).toBe(false);
+    expect(el('settingsDraftBar').hidden).toBe(true);
+  });
+
+  it('Save AI settings sends the instructions verbatim alongside the other AI fields', async () => {
+    const { el, field, requests } = await reviewUpdatePage();
+    const custom = '  Keep it factual.\n\tNever add opening hours.';
+    type(field, custom);
+    await el('saveAi').click();
+    expect(calls(requests)).toEqual(['POST /settings']);
+    expect(requests[0]!.body).toMatchObject({ reviewUpdatePrompt: custom, reviewPrompt: 'Review prompt' });
+    expect(requests[0]!.body).not.toHaveProperty('reviewUpdatePromptDefault');
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+    expect(el('reviewUpdatePromptCount').textContent).toBe(counted(custom.length));
+    expect(el('aiOut').textContent).toBe(EDITOR_COPY.writingSaved);
+  });
+
+  it('Reset restores the default in the field only: unsaved, focused, announced, nothing sent', async () => {
+    const { el, field, doc, requests } = await reviewUpdatePage({ reviewUpdatePrompt: 'Custom house style' });
+    await el('reviewUpdatePromptReset').click();
+    expect(field.value).toBe(DEFAULT_REVIEW_UPDATE_PROMPT);
+    expect(el('reviewUpdatePromptCount').textContent).toBe(counted(DEFAULT_REVIEW_UPDATE_PROMPT.length));
+    expect(el('settingsDraftStatus').textContent).toContain(EDITOR_COPY.settingsAiSection);
+    expect(doc.activeElement).toBe(field);
+    expect(el('aiOut').textContent).toBe(EDITOR_COPY.settingsReviewUpdatePromptRestored);
+    expect(requests).toEqual([]);
+    await el('saveAi').click();
+    expect(requests[0]!.body).toMatchObject({ reviewUpdatePrompt: DEFAULT_REVIEW_UPDATE_PROMPT });
+  });
+
+  it('keeps Reset unavailable when the response carries no usable update default', async () => {
+    const { el, field } = await reviewUpdatePage({ reviewUpdatePrompt: 'Custom', reviewUpdatePromptDefault: ' ' });
+    expect(el('reviewUpdatePromptReset').disabled).toBe(true);
+    await el('reviewUpdatePromptReset').click();
+    expect(field.value).toBe('Custom');
+    expect(el('aiOut').textContent).toBe('');
+  });
+
+  it.each([
+    ['blank', '', EDITOR_COPY.settingsReviewUpdatePromptRequired],
+    ['whitespace-only', ' \n\t ', EDITOR_COPY.settingsReviewUpdatePromptRequired],
+    ['hidden-control', 'Line one\u000bLine two', EDITOR_COPY.settingsReviewUpdatePromptHidden],
+    ['over-limit', 'x'.repeat(MAX + 1),
+      EDITOR_COPY.settingsReviewUpdatePromptTooLong!.replace('{max}', String(MAX)).replace('{over}', '1')],
+  ])('refuses %s instructions under the field without a request, and typing clears the error', async (_name, value, message) => {
+    const { el, field, advanced, error, requests } = await reviewUpdatePage();
+    type(field, value);
+    expect(advanced.open).toBe(false);
+    await el('saveAi').click();
+    expect(requests).toEqual([]);
+    expect(advanced.open).toBe(true);
+    const line = error()!;
+    expect(line.id).toBe('reviewUpdatePromptError');
+    expect(line.textContent).toBe(message);
+    expect(line.textContent).not.toMatch(/[{}]/);
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(field.value).toBe(value);
+    type(field, 'Keep it factual.');
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+    expect(error()!.hidden).toBe(true);
+    await el('saveAi').click();
+    expect(calls(requests)).toEqual(['POST /settings']);
+    expect(requests[0]!.body).toMatchObject({ reviewUpdatePrompt: 'Keep it factual.' });
+  });
+});
+
 describe('settings.html story drafting (#579)', () => {
   const MAX = PROMPT_RULES.DRAFTING_PROMPT_MAX_LENGTH;
   const DESCRIBED_BY = 'draftingPromptHelp draftingPromptCount';
@@ -4117,6 +4216,7 @@ describe('settings.html AI configuration', () => {
     excerpt: { status: 'pass', critique: '' },
     headings: { status: 'pass', critique: '' },
     practicalDetails: { status: 'pass', critique: '', missingAspects: [] },
+    altText: { status: 'pass', critique: '' },
     internalLinks: { status: 'info', linkOpportunities: [] },
   };
   const completion = () => Response.json({ choices: [{ message: { content: JSON.stringify(validReview) } }] });

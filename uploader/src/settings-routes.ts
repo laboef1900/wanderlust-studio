@@ -8,6 +8,7 @@ import {
 import { projectBuildReport } from './build-state.js';
 import { validateCanonicalRoles } from './canonical-origin.js';
 import { DEFAULT_DRAFTING_PROMPT } from './drafting-prompt.js';
+import { DEFAULT_REVIEW_UPDATE_PROMPT } from './editorial-review.js';
 import { LanguageError, validateLanguage } from './language.js';
 import { NavigationError } from './navigation.js';
 import { OnboardingError } from './onboarding.js';
@@ -93,6 +94,7 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
       aiProviders, aiDefaultProviderId: s.aiDefaultProviderId,
       reviewProviderId: s.reviewProviderId, captionProviderId: s.captionProviderId,
       aiModel: s.aiModel, reviewPrompt: s.reviewPrompt, reviewTimeoutMs: s.reviewTimeoutMs,
+      reviewUpdatePrompt: s.reviewUpdatePrompt, reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT,
       translationProviderId: s.translationProviderId, translationModel: s.translationModel,
       translationTimeoutMs: s.translationTimeoutMs,
       translationPrompt: s.translationPrompt, translationPromptDefault: DEFAULT_TRANSLATION_PROMPT,
@@ -289,6 +291,7 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
     if (b.avifQuality !== undefined) partial.avifQuality = Number(b.avifQuality);
     for (const field of [
       'aiDefaultProviderId', 'reviewProviderId', 'captionProviderId', 'aiModel', 'reviewPrompt', 'reviewTimeoutMs',
+      'reviewUpdatePrompt',
       'translationProviderId', 'translationModel', 'translationTimeoutMs', 'translationPrompt',
       'draftingProviderId', 'draftingModel', 'draftingTimeoutMs', 'draftingPrompt',
     ] as const) {
@@ -440,7 +443,8 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
         const aiApiKey = isRemoteKind(review.kind) ? await cfg.secrets.get(slotFor(review.id)) : null;
         return reply.send({
           ...captionConfig(s, caption), aiProvider: review.kind, aiBaseUrl: review.baseUrl, aiModel: s.aiModel,
-          reviewPrompt: s.reviewPrompt, reviewTimeoutMs: s.reviewTimeoutMs, hasAiApiKey: aiApiKey !== null, aiApiKey,
+          reviewPrompt: s.reviewPrompt, reviewUpdatePrompt: s.reviewUpdatePrompt, reviewTimeoutMs: s.reviewTimeoutMs,
+          hasAiApiKey: aiApiKey !== null, aiApiKey,
         });
       } catch (e) {
         return reply.code(503).send(secretFailure(e));

@@ -26,6 +26,7 @@ import { defaultSettings, validate } from '../src/settings.js';
 import type { Settings, SettingsStore } from '../src/settings.js';
 import { DEFAULT_TRANSLATION_PROMPT, TRANSLATION_PROMPT_MAX_LENGTH } from '../src/translation-prompt.js';
 import { DEFAULT_DRAFTING_PROMPT, DRAFTING_PROMPT_MAX_LENGTH } from '../src/drafting-prompt.js';
+import { DEFAULT_REVIEW_UPDATE_PROMPT } from '../src/editorial-review.js';
 import { memoryUserStore, hashPassword, type User, type UserStore } from '../src/users.js';
 import { randomUUID } from 'node:crypto';
 import { memorySessionStore, type SessionStore } from '../src/sessions.js';
@@ -1637,6 +1638,30 @@ describe('buildServer config', () => {
 });
 
 describe('settings endpoints', () => {
+  it('#630 POST /settings stores the practical-details update instructions verbatim and /ai-config hands them to authors', async () => {
+    const b = build();
+    const admin = await authed(b, { username: 'admin' });
+    const post = (payload: unknown) => b.app.inject({ method: 'POST', url: '/settings', cookies: admin.cookie, payload: payload as object });
+    for (const reviewUpdatePrompt of ['', '   ', 'Update.\u0000', 'x'.repeat(4001), 7, null]) {
+      const refused = await post({ reviewUpdatePrompt });
+      expect(refused.statusCode).toBe(400);
+      expect(refused.json()).toEqual({
+        error: 'Practical-details update instructions are required and must be visible plain text of at most 4000 characters.',
+      });
+    }
+    const prompt = '  Keep my voice.\nAdd a short practical section.  ';
+    const saved = await post({ reviewUpdatePrompt: prompt });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ reviewUpdatePrompt: prompt, reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT });
+    const author = await authed(b, { isAdmin: false, username: 'author' });
+    const config = await b.app.inject({ url: '/ai-config', cookies: author.cookie });
+    expect(config.json()).toMatchObject({ reviewUpdatePrompt: prompt });
+    for (const purpose of ['caption', 'translation', 'drafting']) {
+      expect((await b.app.inject({ url: '/ai-config?purpose=' + purpose, cookies: author.cookie })).body).not.toContain('Keep my voice');
+    }
+    await b.app.close();
+  });
+
   it('GET /settings is admin-only: 401 unauthenticated, 403 for authors', async () => {
     const b = build();
     expect((await b.app.inject({ method: 'GET', url: '/settings' })).statusCode).toBe(401);
@@ -1648,6 +1673,7 @@ describe('settings endpoints', () => {
     expect(res.json()).toEqual({
       ...SETTINGS, aiProviders: SETTINGS.aiProviders.map((p) => ({ ...p, hasApiKey: false })),
       translationPromptDefault: DEFAULT_TRANSLATION_PROMPT, draftingPromptDefault: DEFAULT_DRAFTING_PROMPT,
+      reviewUpdatePromptDefault: DEFAULT_REVIEW_UPDATE_PROMPT,
     });
   });
 
@@ -1828,7 +1854,7 @@ describe('AI provider routes', () => {
     });
     expect(created.statusCode).toBe(201);
     expect(created.body).not.toContain('fixture-first');
-    expect(Object.keys(created.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault'].sort());
+    expect(Object.keys(created.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault', 'reviewUpdatePromptDefault'].sort());
     const view = created.json().aiProviders[1];
     expect(view).toEqual({
       id: expect.stringMatching(/^p-[0-9a-f]{8}$/), name: 'OpenRouter', kind: 'openrouter',
@@ -2041,7 +2067,7 @@ describe('AI credential boundaries', () => {
     expect(saved.statusCode).toBe(200);
     expect(saved.headers['cache-control']).toBe('no-store');
     expect(saved.json()).toMatchObject({ aiDefaultProviderId: 'remote', reviewProviderId: null, captionProviderId: 'lm-studio' });
-    expect(Object.keys(saved.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault'].sort());
+    expect(Object.keys(saved.json()).sort()).toEqual([...Object.keys(SETTINGS), 'translationPromptDefault', 'draftingPromptDefault', 'reviewUpdatePromptDefault'].sort());
     expect(settings.get()).not.toHaveProperty('lmBaseUrl');
     expect(settings.get()).not.toHaveProperty('aiProvider');
     expect((await b.app.inject({ method: 'POST', url: '/settings', cookies: (await authed(b, { isAdmin: false, username: 'author' })).cookie, payload: { captionProviderId: 'remote' } })).statusCode).toBe(403);
@@ -2114,6 +2140,7 @@ describe('AI credential boundaries', () => {
     const config = (query = '') => b.app.inject({ url: '/ai-config' + query, cookies: cookie });
     const review = {
       aiModel: SETTINGS.aiModel, reviewPrompt: SETTINGS.reviewPrompt, reviewTimeoutMs: SETTINGS.reviewTimeoutMs,
+      reviewUpdatePrompt: SETTINGS.reviewUpdatePrompt,
     };
 
     // Explicit caption assignment; review follows the default.
@@ -6872,5 +6899,70 @@ describe('login, setup and password change inherit the root behavior from their 
     } finally {
       await writable.app.close();
     }
+  });
+});
+
+describe('internal link endpoints', () => {
+  it('requires a session, validates the locale and returns the server-built map', async () => {
+    const b = build();
+    try {
+      expect((await b.app.inject({ url: '/internal-links?locale=de' })).statusCode).toBe(401);
+      expect((await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', payload: { bodyMarkdown: '[x](/a/)', from: 1, to: 2 },
+      })).statusCode).toBe(401);
+      const { cookie } = await authed(b);
+      expect((await b.app.inject({ url: '/internal-links?locale=fr', cookies: cookie })).statusCode).toBe(400);
+      expect((await b.app.inject({ url: '/internal-links?locale=de&locale=en', cookies: cookie })).statusCode).toBe(400);
+      const ok = await b.app.inject({ url: '/internal-links?locale=en', cookies: cookie });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.headers['cache-control']).toBe('no-store');
+      expect(Object.keys(ok.json()).sort()).toEqual(['alternateLocale', 'links', 'locale', 'targets']);
+      expect(ok.json().links).toContainEqual({ from: '/en/', to: '/' });
+    } finally { await b.app.close(); }
+  });
+
+  it('analyzes a Markdown selection and rejects invalid bodies and offsets', async () => {
+    const b = build();
+    const { cookie } = await authed(b);
+    try {
+      const link = await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+        payload: { bodyMarkdown: '[x](/a/ "T")', from: 1, to: 2 },
+      });
+      expect(link.statusCode).toBe(200);
+      expect(link.headers['cache-control']).toBe('no-store');
+      expect(link.json()).toMatchObject({ kind: 'link', link: { url: '/a/', removalSafe: true } });
+      expect(link.json().link.destinationStart).toBe(4);
+      for (const [bodyMarkdown, from, to] of [
+        ['one\ntwo', 0, 7],
+        ['one\r\ntwo', 0, 8],
+        ['- one\n  two', 2, 9],
+        ['https://e.test/', 0, 8],
+      ] as const) {
+        const refused = await b.app.inject({
+          method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+          payload: { bodyMarkdown, from, to },
+        });
+        expect(refused.json()).toEqual({ kind: 'other' });
+      }
+      const tooLarge = await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+        payload: { bodyMarkdown: 'x'.repeat(1_048_577), from: 0, to: 1 },
+      });
+      expect(tooLarge.statusCode).toBe(413);
+      const text = await b.app.inject({
+        method: 'POST', url: '/internal-links/analyze', cookies: cookie,
+        payload: { bodyMarkdown: 'Hallo Welt', from: 0, to: 5 },
+      });
+      expect(text.json()).toMatchObject({ kind: 'text', label: 'Hallo' });
+      for (const payload of [
+        {}, { bodyMarkdown: '[x](/a/)', from: 1 }, { bodyMarkdown: '[x](/a/)', from: 1, to: 1 },
+        { bodyMarkdown: '[x](/a/)', from: 0, to: 99 }, { bodyMarkdown: 7, from: 0, to: 1 }, 'x',
+        { bodyMarkdown: 'x'.repeat(100_001), from: 0, to: 1 },
+      ]) {
+        const res = await b.app.inject({ method: 'POST', url: '/internal-links/analyze', cookies: cookie, payload });
+        expect([400, 415], JSON.stringify(payload)).toContain(res.statusCode);
+      }
+    } finally { await b.app.close(); }
   });
 });

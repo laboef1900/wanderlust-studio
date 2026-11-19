@@ -4,6 +4,81 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Implemented (issue #626, 2026-11-19): Harness sees scripts assigned through `innerHTML`.**
+  The editor DOM harness (`uploader/test/editor-dom-harness.ts`) keeps a terminated
+  `<script>…</script>` assigned through an element's `innerHTML` as an inert node in that
+  subtree, as a browser does, so the three hostile-input injection assertions over such a
+  subtree can now fail if markup reaches the page that way. Page loads are unchanged: they
+  still drop the element from the tree and list it in `editorDocument().scripts`, so no
+  suite's `textContent`, `children` or serialization changes. Raw script text is serialized
+  unescaped only for the inert node, keyed on an explicit provenance flag, never on a node's
+  shape. No production code, schema, route or dependency change; one harness expectation
+  (which pinned the defect) was replaced by the browser-faithful one. See
+  `docs/superpowers/specs/2026-11-19-issue-626-inert-script-nodes.md`.
+
+- **Implemented (2026-11-19): Merge gate widened and browser failures now diagnosable.** Branch
+  protection on `dev` and `main` requires all six CI job contexts, not just the two fast ones:
+  `site · tests + astro check`, `uploader · typecheck + tests`, `owned flock · native amd64`,
+  `owned flock · native arm64`, `CodeQL` and `dependency-review`. Previously the arm64/amd64
+  ownership suites and both security workflows could fail while the merge button stayed green.
+  Settings-only: no workflow triggers, job names or permissions changed, and the release gate
+  (`.github/release/eligibility.mjs`, main-push CI for the tagged SHA) is untouched. Because
+  `native-owner` is `if:`-gated to branches in this repository, its required context stays pending
+  for fork PR heads and blocks them by design. `uploader/playwright.config.ts` now records traces
+  with `retain-on-failure` (was `off`), and `ci.yml` uploads `uploader/test-results/` as a 7-day
+  artifact when the browser job fails, so a red e2e run arrives with `trace.zip`, the failure
+  screenshot and `error-context.md` instead of a bare list reporter.
+
+- **Implemented (2026-11-19): Image build gate on PRs; signed releases with SBOMs.** New `image`
+  job in `ci.yml` builds the release image (`linux/amd64`, no push, no GHCR credentials, GHA layer
+  cache) when `Dockerfile`, `.dockerignore`, `LICENSE`, `NOTICE`, `.github/native-owner`, either
+  `package.json`/lockfile, either `scripts/` tree, `site/src/i18n/ui.ts`, or a
+  `docs/third-party-*.json` changes — fail-safe to build when the base commit is unknown, skipped
+  for fork heads, deliberately not a required check. A companion `image-arm64` job builds the same
+  image on `ubuntu-24.04-arm` (no QEMU) only for pushes to `main` whose scope decision was
+  `build=true`, while PRs and `dev` pushes stay amd64-only; an arm-only regression is therefore
+  caught on the main push, before the tag, by the release eligibility gate. `release.yml` now
+  keyless-signs every qualified candidate digest, attests a CycloneDX SBOM generated from the
+  pushed image, and in the release job signs the promoted index digest and verifies it against the
+  release workflow's OIDC identity before creating the GitHub Release (fail-closed); both SBOMs are
+  attached as assets. SLSA provenance via buildx attestations is explicitly not claimed —
+  per-architecture candidates are merged by digest, so buildx attestations would nest indexes.
+  Spec: `docs/superpowers/specs/2026-11-19-image-build-gate-and-release-signing.md`.
+
+- **Implemented (issue #633, 2026-11-19): Internal page picker and DE↔EN internal link mapping.**
+  The editor's Link action now opens one shared dialog (`uploader/public/link-dialog.js`) with the
+  live internal-page catalog for the active locale in addition to a free address. Visual mode
+  keeps TipTap's link contract; Markdown mode requires a selected text range and asks
+  `POST /internal-links/analyze` for the exact CommonMark node (`site/src/lib/markdown-link-selection.ts`),
+  so the browser never re-implements Markdown: a link is retargeted only in its destination
+  byte range (title/label preserved), removal is server-proved (`removalSafe`), and plain text
+  is inserted with a server-computed, entity-encoded label. Cursor-only insertion/editing is
+  Visual-only; references, definitions, images, code and HTML blocks are refused with
+  `linkEditInSource`. `GET /internal-links` returns the catalog and the single server-built
+  `links` map; article translation sends that map, and the compiler (`article-translation.ts`)
+  deterministically remaps internal link/definition destinations to the published counterpart,
+  preserving external/mailto/tel/fragment links and leaving unmapped destinations unchanged with
+  `internal-links-retained`. No schema change; all admin copy is in `site/src/i18n/ui.ts`.
+- **Implemented (issue #630, 2026-11-18): Story review practical details and article update.**
+  Story review opens as a centered modal and reports image alt-text findings in a new
+  required `altText` section instead of `practicalDetails` (`EDITORIAL_REVIEW_SCHEMA` in
+  `uploader/src/editorial-review.ts`, mirrored in `uploader/public/llm.js`; `LLM.reviewStory`
+  appends the code-owned schema and routing rule after any review prompt). A review prompt
+  still byte-identical to a pre-#630 default is upgraded in memory on load
+  (`PRE_630_REVIEW_PROMPT`, `PRE_630_LEGACY_REVIEW_PROMPT`); customised prompts are kept. The
+  author can answer the missing practical details and send them with the active-language draft
+  to the Story review provider (`LLM.updateArticlePracticalDetails`: one strict request, no
+  fallback or retry), review a line diff and plain-text preview, and explicitly Apply or Undo
+  the body change. Output must be exactly `{"markdown":"…"}` and keep every fence, gallery,
+  heading, link, image, reference definition, HTML and escape (`hasPreservedStructure`,
+  covered by a renderer-backed differential test). New setting `reviewUpdatePrompt`
+  (`/settings`, default `/ai-config`). All dialog copy is in `site/src/i18n/ui.ts`. No schema,
+  route path or data change. Rollback: any settings save after #630 persists the upgraded
+  review prompt; after a rollback delete `reviewPrompt` from `settings.json` or restore the
+  pre-upgrade file (`SECURITY.md`). High-risk design approved by an independent AI reviewer
+  under a scoped, recorded exception. See
+  `docs/superpowers/specs/2026-11-18-issue-630-story-review-practical-update.md`.
+
 - **Security hardening (issue #622, 2026-11-17): CodeQL warning-level findings.** The eleven
   `warning`-level code-scanning alerts in production code are fixed. The WordPress importer
   escapes backslashes (and `<`/`>` in angle form) in degraded inline-image destinations, and

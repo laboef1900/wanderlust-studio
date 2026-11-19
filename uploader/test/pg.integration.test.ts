@@ -835,6 +835,36 @@ maybe('pgPostStore revisions + optimistic concurrency (integration)', () => {
     await pool.end();
   });
 
+  it('list() projects committed published slugs, titles and regions, not a renamed working slug', async () => {
+    const pool = createPool(url!);
+    await ensureSchema(pool);
+    await pool.query('DELETE FROM posts');
+    const store = pgPostStore(pool);
+    const created = await store.upsertDraft({
+      translationKey: '', status: 'draft',
+      shared: { date: '2024-10-03', countryCode: 'RO', region: 'europe', coordinates: { lat: 1, lng: 2 } },
+      de: { locale: 'de', slug: 'live-de', title: 'Live DE', excerpt: 'e', country: 'Rumänien', heroImage: { src: 'https://i/hero', width: 1600, height: 900, alt: 'a' }, bodyMarkdown: '## b', images: {} },
+      en: { locale: 'en', slug: 'live-en', title: 'Live EN', excerpt: 'e', country: 'Romania', heroImage: { src: 'https://i/hero', width: 1600, height: 900, alt: 'a' }, bodyMarkdown: '## b', images: {} },
+    });
+    const tk = created.translationKey;
+    await store.publish(tk, await publishTokens(store, tk));
+    const committed = (await store.list()).find((row) => row.translationKey === tk)!;
+    expect(committed.publishedLocales).toEqual({
+      de: { slug: 'live-de', title: 'Live DE', region: 'europe' },
+      en: { slug: 'live-en', title: 'Live EN', region: 'europe' },
+    });
+
+    // The working row may be renamed without moving the committed projection.
+    await pool.query(`UPDATE posts SET slug='draft-de' WHERE translation_key=$1 AND locale='de'`, [tk]);
+    const renamed = (await store.list()).find((row) => row.translationKey === tk)!;
+    expect(renamed.slugs).toEqual({ de: 'draft-de', en: 'live-en' });
+    expect(renamed.publishedLocales).toEqual({
+      de: { slug: 'live-de', title: 'Live DE', region: 'europe' },
+      en: { slug: 'live-en', title: 'Live EN', region: 'europe' },
+    });
+    await pool.end();
+  });
+
   it('list() falls back to the EN hero when the DE row has the empty-src placeholder', async () => {
     const pool = createPool(url!);
     await ensureSchema(pool);
