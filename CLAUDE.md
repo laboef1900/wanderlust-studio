@@ -234,10 +234,14 @@ tests skip without `TEST_DATABASE_URL` — CI is the authoritative signal for Po
     automatically. Day-to-day work lands here.
   - **`main`** is the **release** branch. It only ever advances by a release PR from `dev`, and
     version tags (`v*.*.*`) are cut from it.
-- **Protected branches** — Both `dev` and `main` require a PR with passing CI (`site · tests +
-  astro check` and `uploader · typecheck + tests`), and block force-pushes and deletion. Admin
-  bypass is disabled, so this applies to the owner too. **Never push directly to `dev` or `main`**,
-  including for merges. Zero approvals are required, so a solo maintainer can self-merge.
+- **Protected branches** — Both `dev` and `main` require a PR with the full CI set green
+  (`site · tests + astro check`, `uploader · typecheck + tests`, `owned flock · native amd64`,
+  `owned flock · native arm64`, `CodeQL`, `dependency-review`), `strict` up-to-date branches, and
+  they block force-pushes and deletion. Admin bypass is disabled, so this applies to the owner
+  too. `native-owner` is skipped for fork PR heads, so its required context stays pending and
+  blocks such a PR by design — re-run it on a branch in this repository instead. **Never push
+  directly to `dev` or `main`**, including for merges. Zero approvals are required, so a solo
+  maintainer can self-merge.
 - **Feature development** — Branch off `dev` as `feature/<desc>`. For work needing isolation from
   the current workspace (or parallel agents), use a worktree:
 

@@ -16,6 +16,35 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
   (which pinned the defect) was replaced by the browser-faithful one. See
   `docs/superpowers/specs/2026-11-19-issue-626-inert-script-nodes.md`.
 
+- **Implemented (2026-11-19): Merge gate widened and browser failures now diagnosable.** Branch
+  protection on `dev` and `main` requires all six CI job contexts, not just the two fast ones:
+  `site · tests + astro check`, `uploader · typecheck + tests`, `owned flock · native amd64`,
+  `owned flock · native arm64`, `CodeQL` and `dependency-review`. Previously the arm64/amd64
+  ownership suites and both security workflows could fail while the merge button stayed green.
+  Settings-only: no workflow triggers, job names or permissions changed, and the release gate
+  (`.github/release/eligibility.mjs`, main-push CI for the tagged SHA) is untouched. Because
+  `native-owner` is `if:`-gated to branches in this repository, its required context stays pending
+  for fork PR heads and blocks them by design. `uploader/playwright.config.ts` now records traces
+  with `retain-on-failure` (was `off`), and `ci.yml` uploads `uploader/test-results/` as a 7-day
+  artifact when the browser job fails, so a red e2e run arrives with `trace.zip`, the failure
+  screenshot and `error-context.md` instead of a bare list reporter.
+
+- **Implemented (2026-11-19): Image build gate on PRs; signed releases with SBOMs.** New `image`
+  job in `ci.yml` builds the release image (`linux/amd64`, no push, no GHCR credentials, GHA layer
+  cache) when `Dockerfile`, `.dockerignore`, `LICENSE`, `NOTICE`, `.github/native-owner`, either
+  `package.json`/lockfile, either `scripts/` tree, `site/src/i18n/ui.ts`, or a
+  `docs/third-party-*.json` changes — fail-safe to build when the base commit is unknown, skipped
+  for fork heads, deliberately not a required check. A companion `image-arm64` job builds the same
+  image on `ubuntu-24.04-arm` (no QEMU) only for pushes to `main` whose scope decision was
+  `build=true`, while PRs and `dev` pushes stay amd64-only; an arm-only regression is therefore
+  caught on the main push, before the tag, by the release eligibility gate. `release.yml` now
+  keyless-signs every qualified candidate digest, attests a CycloneDX SBOM generated from the
+  pushed image, and in the release job signs the promoted index digest and verifies it against the
+  release workflow's OIDC identity before creating the GitHub Release (fail-closed); both SBOMs are
+  attached as assets. SLSA provenance via buildx attestations is explicitly not claimed —
+  per-architecture candidates are merged by digest, so buildx attestations would nest indexes.
+  Spec: `docs/superpowers/specs/2026-11-19-image-build-gate-and-release-signing.md`.
+
 - **Implemented (issue #633, 2026-11-19): Internal page picker and DE↔EN internal link mapping.**
   The editor's Link action now opens one shared dialog (`uploader/public/link-dialog.js`) with the
   live internal-page catalog for the active locale in addition to a free address. Visual mode
