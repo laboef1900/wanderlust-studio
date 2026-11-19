@@ -19,7 +19,7 @@
     "test:built-contracts": "../uploader/node_modules/.bin/tsx scripts/verify-built-contracts.ts"
   },
   "dependencies": {
-    "@astrojs/markdown-satteri": "0.4.8",
+    "@astrojs/markdown-satteri": "0.4.10",
     "@astrojs/mdx": "^8.1.4",
     "@astrojs/rss": "^4.0.19",
     "@astrojs/sitemap": "^3.7.4",
@@ -28,7 +28,7 @@
     "astro": "^7.4.12",
     "entities": "9.0.0",
     "hastscript": "^9.0.3",
-    "maplibre-gl": "6.17.0",
+    "maplibre-gl": "6.18.0",
     "pg": "^8.23.1",
     "pmtiles": "^4.5.0",
     "protomaps-themes-base": "^4.5.0",
