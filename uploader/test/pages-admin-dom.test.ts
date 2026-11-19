@@ -73,7 +73,7 @@ async function editor(key = 'contact', status = 'draft', prepare = false, option
   Object.assign(context, galleryCodecBindings);
   // admin-ui.js first: build-reporting.js formats through AdminFormat. No RichTextEditor is
   // installed, so the production bridge falls back to the Markdown view, as in the story editor's tests.
-  for (const file of ['admin-ui.js', 'build-reporting.js', 'draft-guard.js', 'language.js', 'tabs.js', 'editor-rich-bridge.js', 'manuscript-bar.js', 'media-api.js', 'gallery-library.js', 'posts-filter.js', 'pages-ui.js', 'about-equipment.js', 'gallery-fence.js', 'gallery-metadata-warnings.js', 'write-recovery.js']) vm.runInContext(browserScript(file), context);
+  for (const file of ['admin-ui.js', 'build-reporting.js', 'draft-guard.js', 'language.js', 'tabs.js', 'link-dialog.js', 'editor-rich-bridge.js', 'manuscript-bar.js', 'media-api.js', 'gallery-library.js', 'posts-filter.js', 'pages-ui.js', 'about-equipment.js', 'gallery-fence.js', 'gallery-metadata-warnings.js', 'write-recovery.js']) vm.runInContext(browserScript(file), context);
   // The page script is a module (it imports the gallery fence); run its body.
   const start = html.lastIndexOf('<script type="module">');
   vm.runInContext(html.slice(html.indexOf("'use strict'", start), html.lastIndexOf('</script>')), context);

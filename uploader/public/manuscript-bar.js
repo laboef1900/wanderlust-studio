@@ -25,6 +25,7 @@ window.ManuscriptBar = (function () {
    * @param {() => boolean} o.isVisual      true while the Visual view is showing
    * @param {(name: string) => void} o.command   run a formatting command in the Visual view
    * @param {(action: string) => void} o.markdown  run an EasyMDE action in the Markdown view
+   * @param {() => void} [o.linkAction]  Markdown-mode link: open the shared dialog
    */
   function wire(o) {
     const { bar, formatToggle, formatPanel, compact } = o;
@@ -93,6 +94,7 @@ window.ManuscriptBar = (function () {
       if (key) button.setAttribute('aria-keyshortcuts', 'Meta+' + key + ' Control+' + key);
       button.addEventListener('click', () => {
         if (o.isVisual()) o.command(name);
+        else if (name === 'link' && o.linkAction) o.linkAction();
         else o.markdown(MARKDOWN_ACTION[name]);
         closeFormat();
       });

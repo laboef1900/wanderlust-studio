@@ -741,6 +741,7 @@
     <script src="/admin/language.js"></script>
     <script src="/admin/admin-ui.js"></script>
     <script src="/admin/admin-confirm.js"></script>
+    <script src="/admin/link-dialog.js"></script>
     <script src="/admin/draft-guard.js"></script>
     <script src="/admin/write-recovery.js"></script>
     <script src="/admin/vendor/easymde.min.js"></script>
@@ -893,7 +894,7 @@
         autoDownloadFontAwesome: false,
         autosave: { enabled: false },
         toolbar: false,
-        shortcuts: { togglePreview: null, toggleSideBySide: null, toggleFullScreen: null },
+        shortcuts: { togglePreview: null, toggleSideBySide: null, toggleFullScreen: null, drawLink: null },
       };
       const deMDE = new EasyMDE({ ...MDE_OPTIONS, element: $('deBody') });
       const enMDE = new EasyMDE({ ...MDE_OPTIONS, element: $('enBody') });
@@ -1219,6 +1220,10 @@
         bodyEditors[locale].setMode('markdown');
         galleryEditors[locale].revealLine(line);
       }
+      const linkDialog = InternalLinkDialog.create({
+        copy: editorCopy,
+        onUnauthed: () => guard.redirectToLogin(),
+      });
       function wireManuscriptBar(locale) {
         const bar = $(locale + 'ManuscriptBar');
         // Roving focus, the phone Format tray and the formatting buttons are
@@ -1229,6 +1234,7 @@
           onOpenFormat: () => closePhotoPanel(locale),
           isVisual: () => bodyEditors[locale].isVisual(),
           command: (name) => bodyEditors[locale].command(name),
+          linkAction: () => linkDialog.markdown(mdeFor(locale).codemirror, locale, setStatus),
           markdown: (action) => EasyMDE[action](mdeFor(locale)),
         });
         const closeFormat = tools.closeFormat;
@@ -1238,6 +1244,7 @@
           galleryToggle: $(locale + 'GalleryView'), formatButtons: bar.querySelectorAll('[data-format]'),
           locale, imageOrigin: EditorGalleryImageOrigin, copy: editorCopy, galleryCopy: EditorGalleryCopy.en,
           galleryLibrary, images: () => locale === 'de' ? deImages : enImages, thumbnailUrl: PostsFilter.thumbUrl,
+          askLink: (current) => linkDialog.open({ current, locale }),
           onEditGallery: (sourceStart) => galleryFor(locale, sourceStart),
           onModeChange: () => {
             articleTranslation?.invalidate();
@@ -1246,6 +1253,7 @@
             tools.settle();
           },
         });
+        linkDialog.wireMarkdown(mdeFor(locale).codemirror, locale, setStatus);
         const toggle = $(locale + 'PhotoToggle');
         toggle.addEventListener('click', () => {
           closeFormat();
@@ -2530,6 +2538,7 @@
       }
       articleTranslation = EditorTranslation.create({
         copy: editorCopy, capture: translationSnapshot, flush: flushGalleryEdits, commit: (locale, patch) => commitFields(locale, patch),
+        linkMap: (sourceLocale) => linkDialog.map(sourceLocale),
         availability: () => ({ locales: language?.locales || [], blocked: loadBlocked || pendingSaves > 0 || writeRecovery.unresolved() }),
         didCommit: (locale) => {
           storyReview?.invalidate();

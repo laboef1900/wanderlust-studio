@@ -84,7 +84,7 @@ async function editor(options: { key?: string; prepare?: boolean; locales?: Lang
   context.window = context;
   vm.createContext(context);
   Object.assign(context, galleryCodecBindings);
-  for (const file of ['admin-ui.js', 'build-reporting.js', 'draft-guard.js', 'language.js', 'tabs.js', 'editor-rich-bridge.js', 'manuscript-bar.js', 'media-api.js', 'gallery-library.js', 'posts-filter.js', 'pages-ui.js', 'about-equipment.js', 'gallery-fence.js', 'gallery-metadata-warnings.js', 'write-recovery.js']) {
+  for (const file of ['admin-ui.js', 'build-reporting.js', 'draft-guard.js', 'language.js', 'tabs.js', 'link-dialog.js', 'editor-rich-bridge.js', 'manuscript-bar.js', 'media-api.js', 'gallery-library.js', 'posts-filter.js', 'pages-ui.js', 'about-equipment.js', 'gallery-fence.js', 'gallery-metadata-warnings.js', 'write-recovery.js']) {
     vm.runInContext(browserScript(file), context);
   }
   const start = html.lastIndexOf('<script type="module">');

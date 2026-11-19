@@ -135,6 +135,8 @@ interface EditorOptions {
   upload?: (options: { ownerId: string; fields: Record<string, string>; file: File; recovery: { observeOwner(userId: string): void } }) => Promise<{ src: string; key: string; width: number; height: number; status: string }>;
   /** #513 `/posts/:tk/stop-route` answers; default: every profile off, no stored route. */
   stopRouteFetch?: Fetch;
+  /** `/internal-links` and `/internal-links/analyze` answers; default empty catalog/other. */
+  linkFetch?: Fetch;
   /** Runs after the page's classic scripts and before its module, e.g. to observe a controller factory. */
   beforeModule?: (ctx: vm.Context) => void;
 }
@@ -207,6 +209,7 @@ async function loadEditor(options: EditorOptions = {}) {
   const requests: { url: string; options: RequestInit }[] = [];
   const galleryRequests: { url: string; options: RequestInit }[] = [];
   const stopRouteRequests: { url: string; options: RequestInit }[] = [];
+  const linkRequests: { url: string; options: RequestInit }[] = [];
   const altSuggestWires: AltSuggestWire[] = [];
   const timers = new Map<number, () => void>();
   let nextTimer = 0;
@@ -452,6 +455,13 @@ async function loadEditor(options: EditorOptions = {}) {
         if (options.stopRouteFetch) return options.stopRouteFetch(String(url), init);
         return response({ profiles: { car: false, bike: false, foot: false }, route: null });
       }
+      if (String(url).startsWith('/internal-links')) {
+        linkRequests.push({ url: String(url), options: init });
+        if (options.linkFetch) return options.linkFetch(String(url), init);
+        return response(String(url).includes('/analyze')
+          ? { kind: 'other' }
+          : { locale: 'de', alternateLocale: 'en', targets: [], links: [] });
+      }
       // Authentication uses the production validator; feature requests stay in
       // their own ledger so unrelated consumer assertions remain scoped.
       if (url === '/auth/me') return options.auth ? options.auth() : response({
@@ -580,7 +590,7 @@ async function loadEditor(options: EditorOptions = {}) {
       return typeof options.confirm === 'function' ? options.confirm(prompt) : options.confirm === true;
     },
   });
-  for (const file of ['draft-guard.js', 'write-recovery.js', 'editor-rich-bridge.js', 'manuscript-bar.js']) runBrowserScript(file, ctx);
+  for (const file of ['draft-guard.js', 'write-recovery.js', 'link-dialog.js', 'editor-rich-bridge.js', 'manuscript-bar.js']) runBrowserScript(file, ctx);
   const safety = ctx.DraftGuard as {
     createDraftGuard(options: { resource: string; collect: () => unknown; onChange?: (dirty: boolean) => void }): {
       markDirty(): void; redirectToLogin(): void;
@@ -606,7 +616,7 @@ async function loadEditor(options: EditorOptions = {}) {
   await editorScript.runInContext(ctx);
   const api = vm.runInContext('({ populateForm, buildPayload, loadPost, doSaveDraft, renderAltAudit })', ctx) as EditorApi;
   return {
-    api, el, editors, richEditors, created: dom.created, document: dom.document, requests, galleryRequests, stopRouteRequests, prompts, local, galleryPickers,
+    api, el, editors, richEditors, created: dom.created, document: dom.document, requests, galleryRequests, stopRouteRequests, linkRequests, prompts, local, galleryPickers,
     altSuggestWires,
     ctx,
     flushDialogEvents: dom.flushDialogEvents,
@@ -762,6 +772,42 @@ describe('editor language modes and translation coverage', () => {
           .toBe(host + (locale === mode.primary ? '/' : '/' + locale + '/'));
       }
     }
+  });
+
+  it('opens the shared internal link dialog from the Markdown toolbar and requires a selection', async () => {
+    const catalog = {
+      locale: 'de', alternateLocale: 'en',
+      targets: [{ id: 'page:about', kind: 'about', title: 'About', path: '/uber-mich/', alternatePath: '/en/about-me/' }],
+      links: [{ from: '/uber-mich/', to: '/en/about-me/' }],
+    };
+    const h = await loadEditor({ isAdmin: true, search: '?tk=tk1',
+      fetch: async (url) => response(url === '/posts/tk1' ? fullPair() : url.endsWith('/revisions') ? [] : { images: [] }),
+      linkFetch: async (url) => response(url === '/internal-links/analyze' ? { kind: 'text', label: 'Wort' } : catalog),
+    });
+    await settle();
+    await settle();
+    h.el('deMarkdownMode').click();
+    await settle();
+    h.editors[0]!.value('Hallo Welt');
+    h.editors[0]!.codemirror.setCursor({ line: 0, ch: 2 });
+    const button = h.el('deManuscriptBar').querySelector('[data-format="link"]')!;
+    button.click();
+    await settle();
+    expect(h.linkRequests).toEqual([]);
+    expect(h.el('actionStatus').textContent).toBe(ui.en['editor.chrome.linkSelectText']);
+
+    h.editors[0]!.codemirror.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 5 });
+    button.click();
+    for (let attempt = 0; attempt < 20 && !h.linkRequests.some((request) => request.url === '/internal-links/analyze'); attempt++) {
+      await Promise.resolve();
+    }
+    await settle();
+    expect(h.linkRequests.map((request) => request.url)).toContain('/internal-links/analyze');
+    const dialog = h.document.getElementById('internalLinkDialog')!;
+    expect(dialog.open).toBe(true);
+    dialog.returnValue = 'cancel';
+    dialog.close();
+    h.flushDialogEvents();
   });
 
   it('locks only the locale with publication history, even after whole-story unpublish', async () => {

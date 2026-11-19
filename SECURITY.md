@@ -1251,11 +1251,22 @@ metadata never enter its inference payload. Authenticated, no-store `POST /trans
 sets an explicit `application/json` content type before every send it makes, so echoed
 article text is never served as HTML (#614). The compiler reconstructs from the source,
 validates the complete response and structural fingerprint, and preserves image
-identities, dimensions, gallery order/layout, reference destinations,
-empty overrides, hidden-caption state and unsupported source. Media remains authoritative;
-only article-local fallback text and occurrence-specific overrides are translatable.
-When local fragment links exist, all headings remain unchanged to preserve generated IDs.
-Provider-created autolinks are rejected rather than weakening structural preservation.
+identities, dimensions, gallery order/layout, reference destinations (except for one
+deterministic counterpart exchange, below), empty overrides, hidden-caption state and
+unsupported source. Media remains authoritative; only article-local fallback text and
+occurrence-specific overrides are translatable. When local fragment links exist, all headings
+remain unchanged to preserve generated IDs. Provider-created autolinks are rejected rather than
+weakening structural preservation.
+
+The same requests may carry an optional `links` array of canonical relative public paths. It is
+author-controlled (the editor builds it from the authenticated catalog), strictly validated
+(`/` or one trailing slash, no `//`, `..`, query, fragment or non-ASCII), and applied only by the
+server compiler, which remaps internal link destinations to the matching published locale path
+and keeps everything else byte-identical. A definition used by an image is never remapped. The
+provider never receives the map or any URL. `GET /internal-links` (authenticated, no-store)
+returns the live catalog and its map; `POST /internal-links/analyze` (authenticated, no-store,
+1 MiB, source never logged) returns the exact Markdown node at an editor selection so the
+browser never re-implements CommonMark. Neither route writes content or contacts a provider.
 
 The system message begins with the admin-editable **translation instructions**
 (`translationPrompt`, #567). This is trusted owner configuration: house style only, visible plain

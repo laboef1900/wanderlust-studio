@@ -22,6 +22,7 @@ import { memoryJourneyStore } from './journeys.js';
 import { registerJourneyAdmin } from './journeys-admin.js';
 import { registerMediaRoutes } from './media-routes.js';
 import { registerPagesAndModerationRoutes } from './pages-moderation-routes.js';
+import { registerInternalLinkRoutes } from './internal-link-routes.js';
 import { registerPostsRoutes } from './posts-routes.js';
 import { previewCsp } from './preview.js';
 import { createPublicationProjection } from './publication.js';
@@ -242,6 +243,7 @@ export function buildServer(cfg: ServerConfig): AppServer {
   registerAuthRoutes(ctx);
   registerPostsRoutes(ctx);
   registerPagesAndModerationRoutes(ctx);
+  registerInternalLinkRoutes(ctx);
   registerBackupAndImportRoutes(ctx);
 
   app.get('/health', { preHandler: optionalAuth }, async (req, reply) => {
