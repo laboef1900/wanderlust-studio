@@ -1,8 +1,8 @@
 # Issue 626: `innerHTML` script injection assertions in the DOM harness
 
-Status: design revision 3, pending final review. Revisions 1 and 2 were reviewed and
-returned changes; see *Approval record*. Risk: **normal**. Test files only: the DOM harness
-and the one uploader suite that tests it.
+Status: design revision 3, approved 2026-11-19 by independent AI review (see *Approval
+record*). Revision 1 and 2 were reviewed and returned changes. Risk: **normal**. Test files
+only: the DOM harness and the one uploader suite that tests it.
 
 Parent: [#626](https://github.com/laboef1900/wanderlust-studio/issues/626).
 Predecessor: the one-pass harness parser of
@@ -251,7 +251,7 @@ uploader unit suite (5445 passed; only the pinned harness test fails).
 |---|---|---|
 | B1′: the review-suite evidence was not discriminating — the union selector already matched `img` before this issue, so neither the probe nor the specified container mutation isolated the script member | blocking | Accepted. Outcome, acceptance row 2 and D3 probe 2 now isolate `querySelectorAll('script')`; the mutation inserts only `<script>alert(2)</script>`; the suite's union assertion stays unchanged. |
 | N1′: "the exact assertion expression" no longer holds for the union form | non-blocking | Accepted. Wording now says "with the script member isolated for the union form". |
-| N2′: two test files hold the three assertions, not three suites | non-blocking | Accepted. D3 names the two affected suites and records `editor-rich-text` as a side-effect green. |
+| N2′: two test files hold the three assertions, not three suites | non-blocking | Accepted. D3 names the two affected suites; the rich-text suite is recorded as unaffected (it mounts `happy-dom`). |
 
 ### Revision 3 (commit `0413faae17`): approved
 
