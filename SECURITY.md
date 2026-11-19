@@ -31,9 +31,16 @@ successful CI for that revision. Native amd64/arm64 images are built once, teste
 packages for ownership/restore and legal assets, then promoted by digest. A second eligibility
 check precedes promotion. Staging references are not release/deployment tags. Runner mount
 qualification does not approve the deployment filesystem; failed candidate qualification
-cannot promote stable tags. No image signing, provenance attestation or installed-image
-SBOM is claimed. Approval, recovery and local verification:
-[automation hardening](docs/superpowers/specs/2026-11-13-github-automation-hardening.md).
+cannot promote stable tags. Each qualified candidate digest is keyless-signed and carries a
+CycloneDX SBOM attestation generated from the pushed image; the promoted index digest is signed
+and the signature verified before the GitHub Release exists, so signing or verification failure
+fails the release. Both per-architecture SBOMs are attached to the release. SLSA provenance from
+buildx attestations is deliberately not claimed: per-architecture candidates are merged by
+digest, so buildx attestations would nest indexes. Image-input changes are additionally built on
+the PR with no push and no GHCR credentials; the arm64 variant runs on native arm hardware only
+after a merge to `main`, so PRs never receive arm registry access. Approval, recovery and local verification:
+[automation hardening](docs/superpowers/specs/2026-11-13-github-automation-hardening.md) and
+[image build gate and release signing](docs/superpowers/specs/2026-11-19-image-build-gate-and-release-signing.md).
 
 ## GPX routes — private source and public snapshot
 

@@ -83,6 +83,16 @@ jobs:
         run: npm run test:e2e
         env:
           TEST_DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      # Failure-only browser evidence: traces, screenshots and page snapshots live
+      # in Playwright's outputDir (uploader/test-results/, `uses:` ignores defaults.run).
+      - name: Upload browser-check diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: uploader/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
   # Permanent architecture coverage of current product source. These host-runner
   # tests are NOT DHI/container/deployment-mount qualification.
   native-owner:
@@ -387,3 +397,133 @@ jobs:
         working-directory: site
         env:
           TEST_DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+
+  # Build-only image gate: a broken Dockerfile, a missing named COPY input or a
+  # dependency change must fail on the PR, not on the next tagged release.
+  # Never pushes, so it never receives GHCR credentials. Deliberately NOT a
+  # required check: it is path-scoped and skipped for fork heads.
+  # Spec: docs/superpowers/specs/2026-11-19-image-build-gate-and-release-signing.md
+  image:
+    name: image · docker build
+    # Fork heads cannot read DHI_TOKEN; exclude them instead of running uncredentialled.
+    if: >-
+      github.repository == 'laboef1900/wanderlust-studio' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      # Consumed by image-arm64; an empty value (skipped job) builds nothing.
+      build: ${{ steps.scope.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The scope step diffs against the base commit, which needs history.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide whether image inputs changed
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            echo 'Manual dispatch: building regardless of changed paths.'
+            exit 0
+          fi
+          base="${PR_BASE:-}"
+          [ "$EVENT" = push ] && base="${BEFORE:-}"
+          # Fail safe: an unknown or unreachable base builds rather than skips.
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            echo 'No comparable base commit; building fail-safe.'
+            exit 0
+          fi
+          paths=(Dockerfile .dockerignore LICENSE NOTICE
+                 .github/native-owner uploader/package.json uploader/package-lock.json
+                 uploader/scripts site/package.json site/package-lock.json
+                 site/scripts site/src/i18n/ui.ts
+                 docs/third-party-inventory.json docs/third-party-evidence.json
+                 docs/third-party-image-evidence.json)
+          if git diff --quiet "$base" "$HEAD" -- "${paths[@]}"; then
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+            echo "No image input changed between $base and $HEAD."
+          else
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            git diff --name-only "$base" "$HEAD" -- "${paths[@]}"
+          fi
+      - name: Set up Buildx
+        if: steps.scope.outputs.build == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Authenticate DHI base images
+        if: steps.scope.outputs.build == 'true'
+        env:
+          DHI_USERNAME: ${{ vars.DHI_USERNAME }}
+          DHI_TOKEN: ${{ secrets.DHI_TOKEN }}
+        run: |
+          test -n "$DHI_USERNAME" && test -n "$DHI_TOKEN"
+          printf '%s' "$DHI_TOKEN" | docker login dhi.io --username "$DHI_USERNAME" --password-stdin
+      # No --push and no --load: the image lives only in the builder cache, which
+      # still executes every stage and therefore every named COPY. A cold build
+      # fetches the ~524 MB Protomaps slice; the layer cache makes repeat builds cheap.
+      - name: Build the release image without pushing
+        if: steps.scope.outputs.build == 'true'
+        run: |
+          docker buildx build --platform=linux/amd64 --progress=plain \
+            --build-arg "SOURCE_REPOSITORY=$GITHUB_REPOSITORY" \
+            --build-arg "SOURCE_REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --cache-from type=gha,scope=image-amd64 \
+            --cache-to type=gha,mode=max,scope=image-amd64 \
+            --tag "image-build:$GITHUB_SHA" .
+      - name: Discard registry credentials
+        if: always() && steps.scope.outputs.build == 'true'
+        run: docker logout dhi.io
+
+  # arm64 is the deployment target's second architecture. It is built on native arm
+  # hardware (the repo forbids QEMU) and only after a merge to main, so an arm-only
+  # regression is known before the tag rather than during the release. PRs stay
+  # amd64-only; the release candidate still builds both architectures.
+  image-arm64:
+    name: image · docker build (arm64)
+    needs: image
+    if: >-
+      needs.image.outputs.build == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.private == false
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Authenticate DHI base images
+        env:
+          DHI_USERNAME: ${{ vars.DHI_USERNAME }}
+          DHI_TOKEN: ${{ secrets.DHI_TOKEN }}
+        run: |
+          test -n "$DHI_USERNAME" && test -n "$DHI_TOKEN"
+          printf '%s' "$DHI_TOKEN" | docker login dhi.io --username "$DHI_USERNAME" --password-stdin
+      - name: Build the release image without pushing
+        run: |
+          docker buildx build --platform=linux/arm64 --progress=plain \
+            --build-arg "SOURCE_REPOSITORY=$GITHUB_REPOSITORY" \
+            --build-arg "SOURCE_REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --cache-from type=gha,scope=image-arm64 \
+            --cache-to type=gha,mode=max,scope=image-arm64 \
+            --tag "image-build-arm64:$GITHUB_SHA" .
+      - name: Discard registry credentials
+        if: always()
+        run: docker logout dhi.io
