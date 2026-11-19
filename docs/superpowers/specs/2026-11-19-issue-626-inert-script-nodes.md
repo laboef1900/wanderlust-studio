@@ -1,8 +1,8 @@
 # Issue 626: `innerHTML` script injection assertions in the DOM harness
 
-Status: design revision 2, pending re-review. Revision 1 was reviewed and rejected; see
-*Approval record*. Risk: **normal**. Test files only: the DOM harness and the one uploader
-suite that tests it.
+Status: design revision 3, pending final review. Revisions 1 and 2 were reviewed and
+returned changes; see *Approval record*. Risk: **normal**. Test files only: the DOM harness
+and the one uploader suite that tests it.
 
 Parent: [#626](https://github.com/laboef1900/wanderlust-studio/issues/626).
 Predecessor: the one-pass harness parser of
@@ -24,25 +24,31 @@ location and reason copy, never the caption value; the translation patch values 
 fail, and the accepted criterion is the one the issue is titled after: **the assertion form
 is sensitive to an inert node created by assigning that path's hostile string through
 `innerHTML`**. Revision 1 claimed instead that each suite's own code path could be mutated
-faithfully; that claim was wrong and is corrected below. The one path where a faithful
-mutation reaches the DOM is the story-review render, and there the assertion is shown to
-fail exactly where it is written.
+faithfully; that claim was wrong and is corrected below.
+
+For the review suite the union assertion also matches `img` and `[onerror]`, which already
+worked before this issue, so evidence for it isolates the script member:
+`root.querySelectorAll('script')`, or the union assertion after a mutation that inserts only
+the hostile string's `<script>alert(2)</script>` through `innerHTML`. The suite's own
+assertion text is unchanged and its `img`/`[onerror]` behaviour is not what this issue
+repairs.
 
 Files: `uploader/test/editor-dom-harness.ts`, `uploader/test/editor-dom-harness.test.ts`,
-this note, one sentence in the #623 note. No production code, no assertion in the three
-suites, no schema, data, route, dependency or security-model change.
+this note, one sentence in the #623 note. No production code, no assertion in the two
+affected suites, no schema, data, route, dependency or security-model change.
 
 ## Acceptance checklist
 
 | Requirement | Implementation | Evidence |
 |---|---|---|
 | `root.querySelectorAll('script')` (about-gallery-warnings) can see a script node made by `innerHTML` from that suite's hostile caption `capton="<script>bad</script>"` | D1, inert node | D3 probe 1. No faithful app mutation exists (the renderer never receives the caption); a synthetic one is recorded in *Approval record* only as a mechanical check |
-| `root.querySelectorAll('img, script, [onerror]')` (editor-dom review test) can see model text inserted through `innerHTML` | D1 | D3 probe 2; dev-only mutation that appends a container with `innerHTML = hostile` to `reviewSemantic`, which fails the assertion at `editor-dom.test.ts:3640` (the natural `critique.innerHTML` swap already fails the earlier `textContent` assertion at `:3638`, so it cannot demonstrate the selector) |
+| `root.querySelectorAll('script')` (the script member of the editor-dom review test's union selector) can see `<script>alert(2)</script>` from that suite's hostile string inserted through `innerHTML` | D1 | D3 probe 2, with the script member isolated (the `img` member already matched before this issue). A dev-only mutation appends a container with `innerHTML = '<script>alert(2)</script>'` to `reviewSemantic`; it fails the union assertion at `editor-dom.test.ts:3640` only after this change. The natural `critique.innerHTML` swap already fails the earlier `textContent` assertion at `:3638`, so it cannot demonstrate the selector |
 | `dialog.querySelector('script')` (editor-dom translation test) can see `<script>example</script>` inserted through `innerHTML` | D1 | D3 probe 3. No faithful app mutation exists (patch values go to textarea `.value`s); a synthetic one is recorded only as a mechanical check |
 | All uploader suites pass without loosening an assertion | D1 keeps the page-load path identical; nothing is skipped or deleted | full `npm test`; only the harness test that pins today's defect changes |
 
-The D3 probes use each suite's exact hostile string and the exact assertion expression, on
-the element that holds the assigned markup, which is what the assertion under test does.
+The D3 probes use each suite's exact hostile string and the exact assertion expression, with
+the script member isolated for the union form, on the element that holds the assigned
+markup.
 
 ## Design
 
@@ -104,10 +110,12 @@ markup string.
 - The existing `innerHTML` block asserted the defect (no script node); it now asserts a
   split text run around the node, the node with its raw content, and `querySelector`.
 - Three probes shaped exactly like the affected assertions, on each suite's own hostile
-  string, assigned through `innerHTML`:
+  string, assigned through `innerHTML`, with the script member isolated where the suite's
+  selector is a union:
   - `root.querySelectorAll('script')` for `capton="<script>bad</script>"`;
-  - `root.querySelectorAll('img, script, [onerror]')` for
-    `<img src=x onerror="alert(1)"><script>alert(2)</script>`;
+  - `root.querySelectorAll('script')` for
+    `<img src=x onerror="alert(1)"><script>alert(2)</script>`, because the suite's
+    `img, script, [onerror]` union already matched `img` before this issue;
   - `dialog.querySelector('script')` for `<script>example</script>`.
 - Host-level tests for the mode split and the node shape:
   - an `innerHTML` assignment on an element of a page-loaded document leaves
@@ -122,8 +130,11 @@ markup string.
   - a nested script on a page load (`x<script>a<script>b</script>c</script>z`): one
     collected script with text `a<script>b`, no node, `xc`/`z` text runs.
 
-The three affected suites keep their assertions unchanged; they are the regression check
-for D1's page-load path and for the app code that renders hostile text with `textContent`.
+The two affected suites (`about-gallery-warnings.test.ts`, `editor-dom.test.ts`) keep their
+assertions unchanged; they are the regression check for D1's page-load path and for the app
+code that renders hostile text with `textContent`. `editor-rich-text.test.ts` has a
+`querySelector('script')` assertion that becomes effective as a side effect and stays green;
+it is not part of the acceptance criteria.
 
 ### D4. Documentation
 
@@ -225,6 +236,26 @@ browsers, script text serializes raw, and an empty script has no children.
 | N5: parameter rename undecided; branch must test presence | non-blocking | Accepted. Renamed to `pageScripts`; presence test required. |
 | N6: a failing suite can also come from a test's own fixture | non-blocking | Accepted. Failure handling now separates application callers from suite fixtures. |
 
-### Revision 2 (commit to be recorded): pending re-review
+### Revision 2 (commit `82d1f2b3ef`): changes required — one residue
 
-Same independent reviewer. Implementation must not start until this revision is approved.
+Same reviewer and worker (dispatch `ctx_beb4ea70130b`, agent `omp`, model
+`deepseek-flash`), 2026-11-19. The reviewer implemented revision 2's D1+D2 in a scratch copy
+(`rawText` flag default `false`, set only in the `innerHTML` branch; collector renamed
+`pageScripts` and tested by presence) and diffed 16 page-load probes against the revision 1
+baseline: tree, `dom.scripts`, `textContent`, `outerHTML`, `innerHTML` and `childNodes`
+byte-identical, including B1's failure case. It confirmed the five missing tests, the
+nested-script expectation, the script-member isolation question, and re-ran the full
+uploader unit suite (5445 passed; only the pinned harness test fails).
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| B1′: the review-suite evidence was not discriminating — the union selector already matched `img` before this issue, so neither the probe nor the specified container mutation isolated the script member | blocking | Accepted. Outcome, acceptance row 2 and D3 probe 2 now isolate `querySelectorAll('script')`; the mutation inserts only `<script>alert(2)</script>`; the suite's union assertion stays unchanged. |
+| N1′: "the exact assertion expression" no longer holds for the union form | non-blocking | Accepted. Wording now says "with the script member isolated for the union form". |
+| N2′: two test files hold the three assertions, not three suites | non-blocking | Accepted. D3 names the two affected suites and records `editor-rich-text` as a side-effect green. |
+
+### Revision 3 (commit to be recorded): pending final review
+
+Same independent reviewer. Only the review-suite evidence wording, the probe, the affected
+suite count and this record changed; D1, D2, invariants, tests and failure handling are as
+approved by the revision 2 verification. Implementation must not start until this revision
+is approved.
