@@ -133,8 +133,8 @@ markup string.
 The two affected suites (`about-gallery-warnings.test.ts`, `editor-dom.test.ts`) keep their
 assertions unchanged; they are the regression check for D1's page-load path and for the app
 code that renders hostile text with `textContent`. `editor-rich-text.test.ts` has a
-`querySelector('script')` assertion that becomes effective as a side effect and stays green;
-it is not part of the acceptance criteria.
+`querySelector('script')` assertion that this issue does not affect (that suite mounts
+`happy-dom`, not the harness) and that stays green.
 
 ### D4. Documentation
 
@@ -253,9 +253,29 @@ uploader unit suite (5445 passed; only the pinned harness test fails).
 | N1′: "the exact assertion expression" no longer holds for the union form | non-blocking | Accepted. Wording now says "with the script member isolated for the union form". |
 | N2′: two test files hold the three assertions, not three suites | non-blocking | Accepted. D3 names the two affected suites and records `editor-rich-text` as a side-effect green. |
 
-### Revision 3 (commit to be recorded): pending final review
+### Revision 3 (commit `0413faae17`): approved
 
-Same independent reviewer. Only the review-suite evidence wording, the probe, the affected
-suite count and this record changed; D1, D2, invariants, tests and failure handling are as
-approved by the revision 2 verification. Implementation must not start until this revision
-is approved.
+Same independent reviewer and worker (dispatch `ctx_7730c383dab2`, agent `omp`, model
+`deepseek-flash`), 2026-11-19. Verdict: **approved**, no blocking finding. The reviewer
+diffed `82d1f2b3ef..0413faae17` (note only), re-ran the acceptance probes against the
+unmodified harness and a scratch implementation of this design, and re-ran the revised
+script-only mutation.
+
+- Gallery `querySelectorAll('script')`: 0 before, 1 after, for `capton="<script>bad</script>"`.
+- Review `querySelectorAll('script')`: 0 before, 1 after; the suite's union selector: 1
+  before (the `img` match), 2 after (the `SCRIPT` node).
+- Translation `querySelector('script')`: `null` before, a node after, for
+  `<script>example</script>`.
+- The dev-only container mutation with `innerHTML = '<script>alert(2)</script>'` passes the
+  whole review test on the unmodified harness and fails `editor-dom.test.ts:3640` only with
+  this design's harness.
+- D1, D2, invariants 1–4, failure handling, tests, the requirement exception and the
+  revision 1 record are byte-identical to revision 2, whose 16-input page-load differential
+  and 5445-passed uploader run therefore stand.
+
+One non-blocking correction, applied in T2's docs pass above: the rich-text suite mounts
+`happy-dom` and never imports the harness, so its `querySelector('script')` assertion is
+unaffected rather than newly effective.
+
+Implementation may start; D1 and D2 must land exactly as revised (`rawText` flag default
+`false`, set only by the `innerHTML` branch; `pageScripts` tested by presence).
