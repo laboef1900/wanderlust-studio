@@ -106,6 +106,11 @@ recorded as an observation for the owner, not implemented. For the same reason t
 is not widened to the forms a browser accepts (`</script >`, `</script/>`): today such an
 element stays in the tree where those assertions can see it, and it still does.
 
+Implemented for `innerHTML` only by [#626](https://github.com/laboef1900/wanderlust-studio/issues/626)
+(2026-11-19): a terminated script assigned through `innerHTML` stays as an inert node in that
+subtree, while page loads keep it out of the tree and in `dom.scripts`
+(`docs/superpowers/specs/2026-11-19-issue-626-inert-script-nodes.md`).
+
 ### D2. #610 alerts 7 and 9: Desk page scripts from the harness
 
 `uploader/test/build-reporting-dom.test.ts` and `uploader/test/onboarding-dom.test.ts` both

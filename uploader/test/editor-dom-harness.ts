@@ -60,7 +60,9 @@ export class EditorElement {
   selectionStart = 0;
   selectionEnd = 0;
 
-  constructor(readonly tagName: string, private readonly state: DomState) {}
+  // `rawText` is provenance, not shape: only the innerHTML path's inert script
+  // element sets it, and only that element serializes its text unescaped.
+  constructor(readonly tagName: string, private readonly state: DomState, private readonly rawText = false) {}
 
   get children() { return this.childNodes.filter((child) => child.tagName !== '#TEXT'); }
   get firstChild(): EditorElement | null { return this.childNodes[0] ?? null; }
@@ -88,7 +90,10 @@ export class EditorElement {
   set title(value: string) { this.setAttribute('title', value); }
   get textContent(): string { return this.ownText + this.childNodes.map((child) => child.textContent).join(''); }
   set textContent(value: string) { this.replaceChildren(); this.ownText = String(value); }
-  get innerHTML(): string { return escape(this.ownText) + this.childNodes.map((child) => child.outerHTML).join(''); }
+  get innerHTML(): string {
+    // A browser serializes script text without escaping it.
+    return this.rawText ? this.textContent : escape(this.ownText) + this.childNodes.map((child) => child.outerHTML).join('');
+  }
   set innerHTML(value: string) { this.replaceChildren(); parseMarkup(String(value), this, this.state); }
   get outerHTML(): string {
     if (this.tagName === '#TEXT') return escape(this.textContent);
@@ -241,7 +246,12 @@ interface ScriptElement { src: string | null; text: string }
 
 // One left-to-right pass over the original markup; nothing is rewritten, so
 // pieces around a skipped comment or script can never join into new markup.
-function parseMarkup(markup: string, root: EditorElement, state: DomState, scripts?: ScriptElement[]) {
+// `pageScripts` decides what a terminated script start tag does: with a
+// collector (a page load) the element is skipped and recorded; without one (an
+// innerHTML assignment) it becomes an inert node in the tree, as in a browser.
+// Its presence, never its length, selects the mode: an empty collector is a
+// page load.
+function parseMarkup(markup: string, root: EditorElement, state: DomState, pageScripts?: ScriptElement[]) {
   const stack = [root];
   const tokens = /<[^>]+>|[^<]+/y;
   let run = '';
@@ -279,7 +289,24 @@ function parseMarkup(markup: string, root: EditorElement, state: DomState, scrip
     if (tag?.toLowerCase() === 'script') {
       const end = scriptEnd(cursor);
       if (end >= 0) {
-        scripts?.push({ src: attributesOf(token, tag).findLast(([name]) => name === 'src')?.[1] ?? null, text: markup.slice(cursor, end) });
+        if (pageScripts) {
+          pageScripts.push({ src: attributesOf(token, tag).findLast(([name]) => name === 'src')?.[1] ?? null, text: markup.slice(cursor, end) });
+          cursor = end + 9;
+          continue;
+        }
+        // innerHTML: an inert script node, appended at the current position
+        // after flushing the pending text run, with its source as one raw text
+        // child. It is not pushed on the open-element stack.
+        flush();
+        const element = new EditorElement(tag.toUpperCase(), state, true);
+        for (const [name, value] of attributesOf(token, tag)) element.setAttribute(name, value);
+        const source = markup.slice(cursor, end);
+        if (source) {
+          const text = new EditorElement('#TEXT', state);
+          text.textContent = source;
+          element.appendChild(text);
+        }
+        stack.at(-1)!.appendChild(element);
         cursor = end + 9;
         continue;
       }
