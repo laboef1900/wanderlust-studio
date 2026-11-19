@@ -34,8 +34,9 @@ assertion text is unchanged and its `img`/`[onerror]` behaviour is not what this
 repairs.
 
 Files: `uploader/test/editor-dom-harness.ts`, `uploader/test/editor-dom-harness.test.ts`,
-this note, one sentence in the #623 note. No production code, no assertion in the two
-affected suites, no schema, data, route, dependency or security-model change.
+this note, one sentence in the #623 note, and a `docs/claude/project-status.md` entry. No
+production code, no assertion in the two affected suites, no schema, data, route,
+dependency or security-model change.
 
 ## Acceptance checklist
 
@@ -138,8 +139,9 @@ code that renders hostile text with `textContent`. `editor-rich-text.test.ts` ha
 
 ### D4. Documentation
 
-This note, and one sentence in the #623 note's D1 "Considered and rejected" paragraph
-recording that #626 implemented the option it left open, with the behaviour boundary.
+This note, one sentence in the #623 note's D1 "Considered and rejected" paragraph
+recording that #626 implemented the option it left open with the behaviour boundary, and a
+`docs/claude/project-status.md` entry as `CLAUDE.md`'s Definition of Done requires.
 
 ## Preservation invariants
 
