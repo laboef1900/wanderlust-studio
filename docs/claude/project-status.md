@@ -4,6 +4,18 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Implemented (issue #626, 2026-11-19): Harness sees scripts assigned through `innerHTML`.**
+  The editor DOM harness (`uploader/test/editor-dom-harness.ts`) keeps a terminated
+  `<script>…</script>` assigned through an element's `innerHTML` as an inert node in that
+  subtree, as a browser does, so the three hostile-input injection assertions over such a
+  subtree can now fail if markup reaches the page that way. Page loads are unchanged: they
+  still drop the element from the tree and list it in `editorDocument().scripts`, so no
+  suite's `textContent`, `children` or serialization changes. Raw script text is serialized
+  unescaped only for the inert node, keyed on an explicit provenance flag, never on a node's
+  shape. No production code, schema, route or dependency change; one harness expectation
+  (which pinned the defect) was replaced by the browser-faithful one. See
+  `docs/superpowers/specs/2026-11-19-issue-626-inert-script-nodes.md`.
+
 - **Implemented (issue #633, 2026-11-19): Internal page picker and DE↔EN internal link mapping.**
   The editor's Link action now opens one shared dialog (`uploader/public/link-dialog.js`) with the
   live internal-page catalog for the active locale in addition to a free address. Visual mode
