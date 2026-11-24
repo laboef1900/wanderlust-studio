@@ -20,7 +20,7 @@
     },
     "uploader": {
       "path": "uploader/package-lock.json",
-      "sha256": "4890f55a6303cf8a750fe9a6e346f8f20ad44b4c5370f6025e8d8793a0f645bc",
+      "sha256": "834ba5fab11b9c6d7010d6a09f36e8f7cf91f7b71f1e307035a7f5bbe1a241dc",
       "lockfileVersion": 3,
       "entries": 389
     }
