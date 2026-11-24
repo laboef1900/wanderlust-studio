@@ -20,7 +20,7 @@
     },
     "uploader": {
       "path": "uploader/package-lock.json",
-      "sha256": "4f03b0ac1602da57b6a5d6d9c9b61d2ed37bad57b52d293c4f39565ba8b8a6e1",
+      "sha256": "834ba5fab11b9c6d7010d6a09f36e8f7cf91f7b71f1e307035a7f5bbe1a241dc",
       "lockfileVersion": 3,
       "entries": 389
     }
@@ -12073,10 +12073,10 @@
       "tree": "uploader",
       "path": "node_modules/preact",
       "name": "preact",
-      "version": "10.29.8",
+      "version": "11.2.0",
       "license": "MIT",
-      "resolved": "https://registry.npmjs.org/preact/-/preact-10.29.8.tgz",
-      "integrity": "sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==",
+      "resolved": "https://registry.npmjs.org/preact/-/preact-11.2.0.tgz",
+      "integrity": "sha512-/HfHI/7N84e6GrWBJ3J280z3mLaRJiDcSvj/A+y/4AbLnND/1UlGHe1sR6oYuTGwId0nP7dqDU9OnLxMPZ7xBg==",
       "dev": false,
       "optional": false,
       "obligationIds": [
