@@ -319,6 +319,11 @@ descriptor and ordered social links. `GET`/`PUT /settings/identity` are admin-on
 Public text changes at the next Publish/Rebuild; admin chrome at the next page load; new
 author replies use the configured name immediately (empty becomes `Author`). Existing
 replies retain their stored names. The About body remains separate page content.
+The About editor saves equipment and an optional portrait per active locale through the same
+identity endpoint, sharing one revision across both controls. Settings passes the portraits
+through without editing them. The portrait stores a hosted media variant base, dimensions,
+alt and optional format/focus, not image bytes. The next build projects active portraits into
+the About cards; a locale without one keeps its compass.
 
 Logo and favicon have separate save/remove actions in the same tab. Admin-only
 `PUT /settings/identity/assets/:role` accepts multipart `revision` plus one `file`;
@@ -893,8 +898,8 @@ Created idempotently by `uploader/src/db.ts` (`ensureSchema`):
 - **`sessions`** — `id` (SHA-256 of the random token), `user_id` (FK, cascade), `expires_at`. Expired rows are swept hourly.
 - **`app_secrets`** — `key` primary key, `ciphertext`, `iv`, `tag` (hex-encoded AES-256-GCM envelope), `updated_at`. One row per remote AI provider (`ai_provider_key:<id>`). The master key and plaintext credentials never enter this table.
 - **`site_identity`** — singleton `id = true`, revision, seed provenance, nullable `saved_at`,
-  `updated_at`, site/author names, reserved canonical origin, localized text maps and ordered
-  social links. Only an explicit admin save marks it configured.
+  `updated_at`, site/author names, canonical origin, localized text and portrait maps, and
+  ordered social links. Only an explicit admin save marks it configured.
 - **`site_language`** — singleton `id = true`: `primary_locale` (`de`/`en`), `enabled_locales`
   (`text[]`, one or two distinct values including the primary), `locked_at` (set at the first
   story/journey publish; never cleared) and `updated_at` (the optimistic token every publish

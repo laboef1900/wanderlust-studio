@@ -540,6 +540,14 @@ Identity lives in Postgres with content; operational settings remain in `setting
   restores. Names/localized text use NFC, reject any `\p{C}` before trimming, then enforce field caps.
   Every retained DE/EN map is checked, including inactive values; unknown locale keys and malformed
   maps are refused. No missing locale is filled with another locale's text.
+- Each optional `aboutPortrait.<locale>` (#653) is a canonical variant base plus positive
+  intrinsic dimensions, required plain-text alt (1–300 normalized code points), and optional JPEG
+  format/focus. A changed portrait on the admin PUT must match the configured `PUBLIC_BASE_URL`
+  origin **and** base path with a safe media key. Neither variant URLs nor third-party hosts are
+  accepted. Unchanged stored entries may outlive a host change; restore validates shape without
+  binding the dump to its old host. The build revalidates and retargets images to the current
+  image origin before rendering. The picker offers ready items, but a save does not verify file
+  existence or dimensions. Deleting a referenced photo can break its portrait until replaced.
 - Social links are bounded (six), `https:` only, without credentials, whitespace/control
   characters, IP literals or loopback destinations. Labels are plain text. Rendered links use
   escaped text/attribute interpolation and `rel="noopener noreferrer"`, never raw HTML.
