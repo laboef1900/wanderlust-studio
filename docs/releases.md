@@ -6,6 +6,26 @@ Historical release notes follow. They record release-specific changes, not a pro
 
 ### Cutting a release
 
+**v0.27.1 — dependency and CI maintenance** (linux/amd64 and linux/arm64,
+`ghcr.io/laboef1900/wanderlust-studio:0.27.1`). Updates both npm dependency trees
+(#642, #648), upgrades Preact and the uploader TypeScript toolchain (#646, #644),
+and refreshes CI action pins (#647).
+
+- **Upgrade:** Set `IMAGE_TAG=0.27.1` after the package is published. No Compose,
+  bootstrap, proxy, schema, constraint, data, or settings migrations. No site
+  rebuild required for the upgrade; rebuilding later uses the updated toolchain.
+- **Recovery:** Dump writer stays v15 and readers accept v1–v15; v1–v9 cannot
+  recover private GPX routes. Before upgrading, capture a single write-frozen
+  generation with the database dump and its private-route companion, complete
+  image chain, settings, Compose and `.env`, and separately escrowed key.
+  Reserve capacity for capture, restore staging, the undo set and a new full
+  archive. Follow the [recovery runbook](../ARCHITECTURE.md#app-upgrades-and-supported-recovery)
+  to restore into an isolated target with a qualified image before activation.
+  A release-specific backward rehearsal is not established: **roll-forward
+  only; no supported downgrade.** The release workflow qualifies packaged
+  ownership and restore on both architectures; it does not rehearse an
+  in-place upgrade of an existing installation.
+
 **v0.27.0 — internal link picker, AI story-review answers, signed releases** (linux/amd64 and linux/arm64,
 `ghcr.io/laboef1900/wanderlust-studio:0.27.0`). Changes since v0.26.2 (PRs #636–#639):
 
