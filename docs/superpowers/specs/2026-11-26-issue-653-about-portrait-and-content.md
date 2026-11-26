@@ -5,7 +5,7 @@
   per-locale portrait in the profile card). Options C (styled heading conventions) and D (structured
   profile data) are out of scope.
 - **Base:** `origin/dev` at `c7b3a75`. Branch `feature/653-about-portrait`.
-- **Design revision:** r2 (2026-11-26; resolves design review r1 findings F1–F5, see §12).
+- **Design revision:** r3 (2026-11-26; resolves design review r1 findings F1–F5 and r2 finding F6, see §12).
 - **Risk class:** the owner rated B *normal*. This repo's CLAUDE.md lists "the site identity tables and
   exported identity/content build snapshot" as **high risk**, so this spec applies the high-risk rigor:
   written spec, trust boundaries, misuse cases, invariants, rollback plan.
@@ -244,8 +244,11 @@ alt differs from saved).
 
 **F2 — single operation owner.** The shared controller owns one `busy` operation for all identity
 saves and reloads across both sub-editors and all locales, acquired synchronously before any
-confirmation dialog or request. While busy, every identity Save/Reload button is disabled; inputs stay
-editable and unrelated drafts are preserved. No automatic retry. Each operation carries a token; only
+confirmation dialog or request. While busy (F6, r3), **every identity-mutating control on the page is
+locked**: equipment and portrait inputs, alt inputs, Choose from library, Remove, Save and Reload, in
+all locales (`disabled`, same pattern as Settings → Site identity's scope lock); the picker cannot be
+opened. Inputs therefore cannot change between dispatch and response, so no later draft can be
+lost; the lock releases when the operation settles, with focus restored per §6. No automatic retry. Each operation carries a token; only
 the current token's response is applied. On PUT success the controller adopts the acknowledged
 patch (the normalized value it sent for that field/locale, plus the returned `revision`/`savedAt`;
 the PUT returns no identity). On uncertain outcome (network/5xx) drafts are kept and the revision is
