@@ -15,6 +15,7 @@ window.SettingsIdentity = (function () {
     };
     let revision = null;
     let locales = [];
+    let aboutPortrait = {};
     let links = [];
     let dirty = false;
     const draft = SettingsDrafts.watch('identity', $('identityForm'), copy.identityTab);
@@ -235,6 +236,10 @@ window.SettingsIdentity = (function () {
         if (response.status === 401) { location.href = '/login'; return; }
         if (!response.ok) throw new Error('identity_load');
         const data = await response.json();
+        // The About editor owns portraits. Pass through the saved active entries,
+        // never a blank form value or a retained inactive locale.
+        aboutPortrait = Object.fromEntries(Object.entries(data.identity.aboutPortrait)
+          .filter(([language]) => data.locales.includes(language)));
         revision = data.revision;
         locales = data.locales;
         $('identitySiteName').value = data.identity.siteName;
@@ -336,7 +341,7 @@ window.SettingsIdentity = (function () {
       const requestedOrigin = canonicalInput.trim() === '' ? null : canonicalInput;
       const serializedOrigin = requestedOrigin === null ? null : new URL(requestedOrigin).origin;
       const identity = { siteName: $('identitySiteName').value, authorName: $('identityAuthorName').value,
-        canonicalOrigin: requestedOrigin, socialLinks: links };
+        canonicalOrigin: requestedOrigin, socialLinks: links, aboutPortrait };
       for (const field of fields) {
         identity[field] = Object.fromEntries(locales.map((language) => [language, $('identity-' + field + '-' + language).value]));
       }
@@ -366,6 +371,7 @@ window.SettingsIdentity = (function () {
         } else if (response.status === 400 && result.code === 'invalid_identity') {
           // Field paths come from the server's fixed validation contract, not its supplied value.
           const control = controlFor(result.field);
+          // aboutPortrait.<locale> has no Settings input; use the general refusal.
           if (control) {
             status('');
             lock(false);

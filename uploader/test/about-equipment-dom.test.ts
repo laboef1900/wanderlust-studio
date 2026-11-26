@@ -329,6 +329,15 @@ describe('About editor equipment line (#514)', () => {
     expect(h.el('enGearSection').hidden).toBe(true);
     expect(h.requests.some(({ url }) => url === '/settings/identity')).toBe(false);
   });
+
+  it('preserves the active portrait and never submits an inactive portrait on equipment save', async () => {
+    const portrait = { src: 'https://img.example/photos/alex', alt: 'Alex am See', width: 800, height: 900 };
+    const seeded = { ...identity(), aboutPortrait: { de: portrait, en: { ...portrait, alt: 'Alex at the lake' } } };
+    const h = await editor({ locales: ['de'], route: stubbed({ identity: seeded, locales: ['de'] }).route });
+    h.type('deGear', 'Kamera');
+    await h.click('deGearSave');
+    expect(h.puts()[0]?.identity.aboutPortrait).toEqual({ de: portrait });
+  });
 });
 
 const queue: EncodeQueue = {
