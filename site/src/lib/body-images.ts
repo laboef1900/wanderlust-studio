@@ -131,6 +131,8 @@ export const STORY_BODY_SIZES = `(min-width: ${storyLockRem}rem) ${storyWidthRem
 export const STORY_OPENING_SIZES = `(min-width: ${storyLockRem}rem) ${storyWidthRem - 21}rem, (min-width: 64rem) calc(100vw - 23.5rem), (min-width: 48rem) 45.5rem, calc(100vw - 2.5rem)`;
 // 2.2 / 3.2 of the grid after its 2.5rem padding and 3rem gap.
 export const ABOUT_BODY_SIZES = '(min-width: 72rem) 45.71875rem, (min-width: 64rem) calc(68.75vw - 3.78125rem), calc(100vw - 2.5rem)';
+// First grid column (1 / 3.2), less the card's 3rem padding and two 1px borders.
+export const ABOUT_PORTRAIT_SIZES = '(min-width: 72rem) calc(17.78125rem - 2px), (min-width: 64rem) calc(31.25vw - 4.71875rem - 2px), min(calc(100vw - 5.5rem - 2px), 20rem)';
 /** BasicPage's `max-w-3xl px-5` reading column (#289 contact/privacy/legal pages). */
 export const BASIC_PAGE_BODY_SIZES = '(min-width: 48rem) 45.5rem, calc(100vw - 2.5rem)';
 export const PREVIEW_BODY_SIZES = '(min-width: 46rem) 43.5rem, calc(100vw - 2.5rem)';

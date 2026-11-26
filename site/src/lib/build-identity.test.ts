@@ -24,6 +24,17 @@ describe('site build identity boundary', () => {
     expect(buildSiteOrigin()).toBe('https://journal.example:8443');
   });
 
+  it('retargets a restored portrait without using another locale as fallback or mutating the snapshot', async () => {
+    const portrait = { src: 'https://old.example/library/2022/author', width: 640, height: 960, alt: 'Author' };
+    vi.stubEnv('SITE_IDENTITY_JSON', JSON.stringify({ ...parseIdentitySnapshot(undefined), aboutPortrait: { en: portrait } }));
+    vi.stubEnv('PUBLIC_BASE_URL', 'https://media.example:8443/library');
+    vi.resetModules();
+    const { identity, identityPortrait } = await import('./build-identity');
+    expect(identityPortrait('en')).toEqual({ ...portrait, src: 'https://media.example:8443/library/2022/author' });
+    expect(identityPortrait('de')).toBeNull();
+    expect(identity.aboutPortrait.en).toEqual(portrait);
+  });
+
   it.each(['', '{', '{}', 'null'])('fails closed for a supplied malformed snapshot %j', async (snapshot) => {
     vi.stubEnv('SITE_IDENTITY_JSON', snapshot);
     vi.resetModules();

@@ -3,7 +3,7 @@ import type { DbPool, DbClient } from './db.js';
 import { isSafeSlug, type HeroImage, type PostStore } from './posts.js';
 import type { MediaStore } from './media-store.js';
 import { readLanguage, type LanguageConfig, type LanguageStore } from './language.js';
-import { assertSafeKey } from './storage.js';
+import { hostedImageKey } from './hosted-image-key.js';
 import { lockPostPair } from './post-pair-lock.js';
 import { lockJourney, touchJourney, memoryJourneyMemberExists, registerMemoryJourneyCleanup } from './journey-cleanup.js';
 import { isCanonicalJourneyHero, parseJourneySnapshot, type JourneySnapshot } from '../../site/src/lib/journey-snapshot.js';
@@ -33,14 +33,8 @@ const LOCALES = ['de', 'en'] as const;
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 function heroKey(hero: HeroImage, imageBase: string, locale?: 'de' | 'en'): string {
   try {
-    const base = new URL(imageBase);
-    const url = new URL(hero.src);
-    const prefix = `${imageBase}/`;
-    if (!isCanonicalJourneyHero(hero) || url.origin !== base.origin || !hero.src.startsWith(prefix)) throw new Error();
-    const key = hero.src.slice(prefix.length);
-    assertSafeKey(key);
-    if (hero.src !== `${imageBase}/${key}`) throw new Error();
-    return key;
+    if (!isCanonicalJourneyHero(hero)) throw new Error();
+    return hostedImageKey(hero.src, imageBase);
   } catch { throw new JourneyError('Choose a canonical hosted hero image.', 'invalid_journey', locale); }
 }
 export function validateJourneyDraft(value: unknown, imageBase: string): JourneyDraft {

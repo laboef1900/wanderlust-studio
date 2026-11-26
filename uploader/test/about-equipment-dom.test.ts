@@ -39,6 +39,7 @@ const identity = (): Identity => ({
   siteName: 'Field notes', authorName: 'Alex', canonicalOrigin: 'https://blog.example',
   tagline: { de: 'Unterwegs', en: 'On the road' }, aboutRole: { de: 'Reisender', en: 'Traveler' },
   aboutGear: { de: 'Leica Q2 · Notizbuch', en: 'Leica Q2 · notebook' }, studioDescriptor: { de: 'Studio', en: 'Studio' },
+  aboutPortrait: {},
   socialLinks: [{ label: 'Instagram', url: 'https://instagram.example/alex' }],
 });
 

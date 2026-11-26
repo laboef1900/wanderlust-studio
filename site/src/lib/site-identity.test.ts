@@ -1,6 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { IdentityError, neutralIdentity, normalizeIdentity, parseIdentitySnapshot, toIdentitySnapshot } from './site-identity.js';
 
+const portrait = { src: 'https://old.example/photos/author', width: 1200, height: 1600, alt: 'Portrait' };
+
+describe('localized About portraits', () => {
+  const normalize = (aboutPortrait: unknown) => normalizeIdentity({ ...neutralIdentity(), aboutPortrait }).aboutPortrait;
+
+  it('returns detached metadata, applying the identity alt text rule', () => {
+    const image = { ...portrait, alt: ' Cafe\u0301 ', format: 'jpeg', focus: { x: 0, y: 100 } };
+    const result = normalize({ de: image });
+    expect(result).toEqual({ de: { ...image, alt: 'Café' } });
+    image.focus.y = 10;
+    expect(result.de?.focus?.y).toBe(100);
+    expect(normalize({ en: { ...portrait, alt: '🚲'.repeat(300) } }).en?.alt).toBe('🚲'.repeat(300));
+  });
+
+  it.each([
+    { alt: '  ' }, { alt: '🚲'.repeat(301) }, { alt: '\tName' }, { alt: 'Bad\u202e' },
+    { width: 1.1 }, { height: 0 }, { width: Infinity }, { format: 'png' }, { extra: true },
+    { focus: { x: -1, y: 20 } }, { focus: { x: 0, y: NaN } }, { focus: { x: 1, y: 1, z: 0 } },
+    ...['javascript:bad', 'data:text/plain,x', 'https://u@old.example/p', portrait.src + '?v=1',
+      portrait.src + '#hash', portrait.src + '-640.webp'].map(src => ({ src })),
+  ])('rejects malformed portrait metadata %j at its locale', patch => {
+    expect(() => normalize({ en: { ...portrait, ...patch } })).toThrow(expect.objectContaining({ field: 'aboutPortrait.en' }));
+  });
+
+  it('rejects malformed maps and unknown locale keys', () => {
+    for (const map of [undefined, null, [], { fr: portrait }]) expect(() => normalize(map)).toThrow(IdentityError);
+  });
+
+  it.each(['de', 'en'] as const)('projects only active portraits and rejects inactive keys on parse (%s)', locale => {
+    const saved = { ...neutralIdentity(), aboutPortrait: { de: portrait, en: { ...portrait, alt: 'English' } } };
+    const snapshot = toIdentitySnapshot(saved, [locale]);
+    expect(snapshot.aboutPortrait).toEqual({ [locale]: saved.aboutPortrait[locale] });
+    expect(parseIdentitySnapshot(JSON.stringify(snapshot))).toEqual(snapshot);
+    expect(() => parseIdentitySnapshot(JSON.stringify({ ...snapshot, aboutPortrait: saved.aboutPortrait }))).toThrow(IdentityError);
+  });
+});
 describe('stored site identity', () => {
   it('normalizes NFC and trims ordinary whitespace without interpreting markup', () => {
     const value = normalizeIdentity({ ...neutralIdentity(), siteName: ' Cafe\u0301 ', authorName: '<img src=x onerror=alert(1)>', tagline: { en: ' Travel ' } });

@@ -76,6 +76,28 @@ maybe('identity recovery with isolated PostgreSQL state', () => {
     return [...logo, ...favicon];
   }
 
+  const portrait = { src: 'https://old.example/library/author', width: 800, height: 1200, alt: 'Author' };
+  it.each([
+    { label: 'old row', localized: {}, expected: {} },
+    { label: 'empty', localized: { aboutPortrait: {} }, expected: {} },
+    { label: 'populated', localized: { aboutPortrait: { de: portrait, en: portrait } }, expected: { de: portrait, en: portrait } },
+    { label: 'inactive only', localized: { aboutPortrait: { en: portrait } }, expected: { en: portrait } },
+  ])('restores a $label portrait map on another image host', async ({ localized, expected }) => {
+    const original = await readLanguage(pool);
+    try {
+      await pool.query("UPDATE site_language SET primary_locale='de', enabled_locales=ARRAY['de']");
+      await pool.query('UPDATE site_identity SET localized=$1::jsonb', [JSON.stringify(localized)]);
+      const backup = join(dir, await dumpDatabase(pool, dir));
+      await pool.query("UPDATE site_identity SET localized='{}', author_name='Destination'");
+      await restoreDatabase(pool, backup, { originRoles: { baseUrl: 'https://new.example', imgHost: 'new.example' } });
+      const row = await stored();
+      expect(row.localized).toEqual(localized);
+      expect(identityFromRow(row).aboutPortrait).toEqual(expected);
+    } finally {
+      await pool.query('UPDATE site_language SET primary_locale=$1, enabled_locales=$2', [original.primary, original.locales]);
+    }
+  });
+
   it.each<LanguageConfig>([
     { primary: 'de', locales: ['de', 'en'] }, { primary: 'en', locales: ['en', 'de'] },
     { primary: 'de', locales: ['de'] }, { primary: 'en', locales: ['en'] },
@@ -185,6 +207,7 @@ maybe('identity recovery with isolated PostgreSQL state', () => {
   it.each([
     null, [], { tagline: { de: 'valid', en: 12 } }, { tagline: { de: 'valid', en: 'x'.repeat(161) } },
     { tagline: { fr: 'unknown' } }, { aboutGear: { en: 'x'.repeat(201) } },
+    { aboutPortrait: { fr: portrait } }, { aboutPortrait: { en: { ...portrait, private: 'unknown' } } },
   ].map((localized) => [localized]))('refuses corrupt retained locale data before changing any live table: %j', async (localized) => {
     await addLogo(); const before = await content();
     const dump = readDump(join(dir, await dumpDatabase(pool, dir)));

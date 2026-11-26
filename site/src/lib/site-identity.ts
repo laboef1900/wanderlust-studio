@@ -1,5 +1,10 @@
+import type { RemoteHeroImage } from './images.js';
+import { isCanonicalJourneyHero } from './journey-snapshot.js';
+
 export type IdentityLocale = 'de' | 'en';
 export type IdentityLocaleMap = Partial<Record<IdentityLocale, string>>;
+export type AboutPortrait = RemoteHeroImage;
+export type IdentityPortraitMap = Partial<Record<IdentityLocale, AboutPortrait>>;
 export interface Identity {
   siteName: string;
   authorName: string;
@@ -7,6 +12,7 @@ export interface Identity {
   tagline: IdentityLocaleMap;
   aboutRole: IdentityLocaleMap;
   aboutGear: IdentityLocaleMap;
+  aboutPortrait: IdentityPortraitMap;
   studioDescriptor: IdentityLocaleMap;
   socialLinks: { label: string; url: string }[];
 }
@@ -22,10 +28,11 @@ export class IdentityError extends Error {
   readonly code = 'invalid_identity';
   constructor(readonly field: string) { super('Invalid site identity.'); }
 }
-export const IDENTITY_LOCALIZED_FIELDS = ['tagline', 'aboutRole', 'aboutGear', 'studioDescriptor'] as const;
+const PUBLIC_LOCALIZED_FIELDS = ['tagline', 'aboutRole', 'aboutGear', 'aboutPortrait'] as const;
+export const IDENTITY_LOCALIZED_FIELDS = [...PUBLIC_LOCALIZED_FIELDS, 'studioDescriptor'] as const;
 const caps = { tagline: 160, aboutRole: 80, aboutGear: 200, studioDescriptor: 80 };
 export function neutralIdentity(): Identity {
-  return { siteName: '', authorName: '', canonicalOrigin: null, tagline: {}, aboutRole: {}, aboutGear: {}, studioDescriptor: {}, socialLinks: [] };
+  return { siteName: '', authorName: '', canonicalOrigin: null, tagline: {}, aboutRole: {}, aboutGear: {}, aboutPortrait: {}, studioDescriptor: {}, socialLinks: [] };
 }
 function object(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new IdentityError(field);
@@ -46,6 +53,18 @@ function localeMap(value: unknown, field: string, max: number): IdentityLocaleMa
   for (const key of Object.keys(input)) {
     if (key !== 'de' && key !== 'en') throw new IdentityError(field);
     result[key] = text(input[key], `${field}.${key}`, max);
+  }
+  return result;
+}
+function portraitMap(value: unknown): IdentityPortraitMap {
+  const result: IdentityPortraitMap = {};
+  for (const [locale, portrait] of Object.entries(object(value, 'aboutPortrait'))) {
+    if (locale !== 'de' && locale !== 'en') throw new IdentityError('aboutPortrait');
+    const field = `aboutPortrait.${locale}`;
+    if (!isCanonicalJourneyHero(portrait)) throw new IdentityError(field);
+    const { src, width, height, alt, format, focus } = portrait;
+    result[locale] = { src, width, height, alt: text(alt, field, 300, 1),
+      ...(format && { format }), ...(focus && { focus: { x: focus.x, y: focus.y } }) };
   }
   return result;
 }
@@ -85,6 +104,7 @@ export function normalizeIdentity(input: unknown): Identity {
     tagline: localeMap(value.tagline, 'tagline', caps.tagline),
     aboutRole: localeMap(value.aboutRole, 'aboutRole', caps.aboutRole),
     aboutGear: localeMap(value.aboutGear, 'aboutGear', caps.aboutGear),
+    aboutPortrait: portraitMap(value.aboutPortrait),
     studioDescriptor: localeMap(value.studioDescriptor, 'studioDescriptor', caps.studioDescriptor),
     socialLinks: value.socialLinks.map((entry: unknown, i: number) => {
       const link = object(entry, `socialLinks[${i}]`);
@@ -93,11 +113,11 @@ export function normalizeIdentity(input: unknown): Identity {
     }),
   };
 }
-export function toIdentitySnapshot(input: Identity, locales: IdentityLocale[] = ['de', 'en']): IdentitySnapshot {
+export function toIdentitySnapshot(input: Identity, locales: readonly IdentityLocale[] = ['de', 'en']): IdentitySnapshot {
   const { studioDescriptor: _adminOnly, ...value } = normalizeIdentity(input);
   if (!locales.length || new Set(locales).size !== locales.length || locales.some((locale) => locale !== 'de' && locale !== 'en')) throw new IdentityError('locales');
-  for (const field of ['tagline', 'aboutRole', 'aboutGear'] as const) {
-    value[field] = Object.fromEntries(locales.filter((locale) => value[field][locale] !== undefined).map((locale) => [locale, value[field][locale]]));
+  for (const field of PUBLIC_LOCALIZED_FIELDS) {
+    for (const locale of ['de', 'en'] as const) if (!locales.includes(locale)) delete value[field][locale];
   }
   return { v: 1, locales: [...locales], ...value, assets: { logo: null, favicon: null } };
 }
@@ -110,7 +130,7 @@ export function parseIdentitySnapshot(json: string | undefined): IdentitySnapsho
   const { v: _version, locales, assets, ...fields } = value;
   if ('studioDescriptor' in fields) throw new IdentityError('snapshot');
   const snapshot = toIdentitySnapshot(normalizeIdentity({ ...fields, studioDescriptor: {} }), locales as IdentityLocale[]);
-  for (const field of ['tagline', 'aboutRole', 'aboutGear'] as const) {
+  for (const field of PUBLIC_LOCALIZED_FIELDS) {
     if (Object.keys(object(fields[field], field)).some((locale) => !locales.includes(locale))) throw new IdentityError(field);
   }
   const assetMap = object(assets, 'assets');

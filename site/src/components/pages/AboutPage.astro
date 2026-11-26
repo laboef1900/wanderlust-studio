@@ -1,12 +1,14 @@
 ---
 import Base from '../../layouts/Base.astro';
 import GalleryIsland from '../GalleryIsland.astro';
+import RemoteImage from '../RemoteImage.astro';
 import { getCollection, getEntry, render } from 'astro:content';
 import { useTranslations, type Locale } from '../../i18n/ui';
 import { countLabel } from '../../i18n/count';
 import { aboutPath } from '../../lib/paths';
 import { byLocale, tripStats } from '../../lib/trips';
-import { identity } from '../../lib/build-identity';
+import { identity, identityPortrait } from '../../lib/build-identity';
+import { ABOUT_PORTRAIT_SIZES } from '../../lib/body-images';
 import { localeAlternates } from '../../lib/seo';
 
 interface Props {
@@ -15,6 +17,7 @@ interface Props {
 
 const { locale } = Astro.props;
 const t = useTranslations(locale);
+const portrait = identityPortrait(locale);
 const stats = tripStats(byLocale(await getCollection('trips'), locale));
 
 // About content is authored in /admin/about.html and stored in Postgres (the
@@ -36,13 +39,15 @@ const description = entry?.data.description || t('about.title');
     <div class="grid gap-12 lg:grid-cols-[1fr_2.2fr] lg:items-start">
       <!-- Author Profile Card -->
       <div class="min-w-0 rounded-md border border-navy/10 bg-canvas p-6 shadow-sm [overflow-wrap:anywhere]">
-        <div class="flex items-center gap-4">
+        <div class={portrait ? 'flex flex-col gap-4' : 'flex items-center gap-4'}>
+          {portrait ? <RemoteImage image={portrait} sizes={ABOUT_PORTRAIT_SIZES} loading="eager"
+            class="aspect-square w-full max-w-xs rounded border border-navy/10 object-cover" /> :
           <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-navy text-white shadow-md">
             <svg aria-hidden="true" focusable="false" class="h-7 w-7 text-brand-red-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <circle cx="12" cy="12" r="10" />
               <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
             </svg>
-          </div>
+          </div>}
           <div class="min-w-0">
             {identity.authorName && <h2 class="text-xl font-extrabold text-navy">{identity.authorName}</h2>}
             {identity.aboutRole[locale] && <p class="font-mono text-xs font-semibold tracking-widest text-brand-red uppercase">
