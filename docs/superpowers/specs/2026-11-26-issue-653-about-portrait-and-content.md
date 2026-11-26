@@ -223,7 +223,8 @@ unchanged. Completeness test covers the keys.
 - **Authorised by:** repository owner (@laboef1900), in the task prompt for #653.
 - **Expiry:** at final PR handoff or abandonment of #653.
 - **Design approval:** r1 (`c5ec35b`) CHANGES REQUIRED by omp · `openai-codex/gpt-6-astra` (Orca
-  dispatch `ctx_89e2c815f706`); r2 resubmitted. Final decision recorded below.
+  dispatch `ctx_89e2c815f706`); r2 (`c2d2cf0`) CHANGES REQUIRED (F6); **r3 (`94e77bf`) APPROVED**
+  by the same independent reviewer (dispatch `ctx_227e409c0a9b`), 2026-11-26.
 
 ## 12. Review r1 resolutions (normative for implementation)
 
