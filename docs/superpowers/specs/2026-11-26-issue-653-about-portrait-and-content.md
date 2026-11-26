@@ -5,7 +5,7 @@
   per-locale portrait in the profile card). Options C (styled heading conventions) and D (structured
   profile data) are out of scope.
 - **Base:** `origin/dev` at `c7b3a75`. Branch `feature/653-about-portrait`.
-- **Design revision:** r1 (2026-11-26).
+- **Design revision:** r2 (2026-11-26; resolves design review r1 findings F1–F5, see §12).
 - **Risk class:** the owner rated B *normal*. This repo's CLAUDE.md lists "the site identity tables and
   exported identity/content build snapshot" as **high risk**, so this spec applies the high-risk rigor:
   written spec, trust boundaries, misuse cases, invariants, rollback plan.
@@ -99,9 +99,11 @@ Misuse cases:
 - **M1** Admin pastes an external URL (tracking pixel / hotlink) → refused by I5 at PUT.
 - **M2** `javascript:`/`data:` or credentials in `src` → refused by `isCanonicalJourneyHero`.
 - **M3** Alt with control/bidi characters or 10k chars → refused by `text()` rule.
-- **M4** Variant URL instead of base (`…-640.webp`) → it passes the shape check but renders 404s; the
-  admin picker always stores the base from the media row (`item.src`), so only a hand-crafted request
-  can do this, and only for an admin. Accepted, same as journeys.
+- **M4** Variant URL instead of base (`…-640.webp`) → rejected: `isCanonicalJourneyHero` refuses dots
+  in the path and `assertSafeKey` refuses such a key (negative test required). Real residual limit: a
+  syntactically valid hosted base may name a non-existent photo or carry wrong dimensions; the server
+  does not check library existence/metadata (journey *publication* does; identity saves do not). The
+  ready-only picker is the normal-UI safeguard, not server-side proof. Accepted and documented.
 - **M5** A non-admin author session calls PUT → 403 (existing guard; covered by a test).
 - **M6** Tampered dump with portrait for an unknown locale key or extra keys → restore refused.
 
@@ -175,12 +177,20 @@ unchanged. Completeness test covers the keys.
 ## 9. Rollback and containment
 
 - Revert the PR and redeploy the previous image. **Hazard:** an older release rejects the unknown
-  `localized.aboutPortrait` key in `identityFromRow`, which would stop the identity store from loading.
-  Before starting the older image, back up (`pg_dump` / admin dump) and remove only that key:
-  `UPDATE site_identity SET localized = localized - 'aboutPortrait' WHERE id = true;`
-  (targeted UPDATE per Golden Rule 3; nothing else changes). Documented in `docs/claude/project-status.md`.
-- Dumps taken by this release with a portrait are refused by older releases' restore (fail closed
-  on the unknown key); the same `UPDATE` after restore-on-new is the path back.
+  `localized.aboutPortrait` key in `identityFromRow` — even when it is an empty map `{}`, which every
+  identity save on this release writes — so the older identity store cannot load. Rollback sequence
+  (writers offline):
+  1. Stop the new `app` container (no identity save may re-add the key).
+  2. Take and verify a database dump (`pg_dump` or the admin dump taken before stopping).
+  3. `UPDATE site_identity SET localized = localized - 'aboutPortrait' WHERE id = true;`
+     (targeted UPDATE per Golden Rule 3; nothing else changes; never delete releases or `/data`).
+  4. Start the previous image and **explicitly rebuild** (Settings → Rebuild site now): existing
+     public releases are retained across boot, so the portrait HTML stays live until a release built
+     by the older image replaces it. Verify the About page shows the compass card again.
+- New-format dumps (any dump containing the `aboutPortrait` key, empty or not) are refused by older
+  releases' restore (fail closed). Path back: restore with this release's reader, stop it, run the
+  UPDATE above offline, then start the older release and rebuild.
+- Recorded in `docs/claude/project-status.md` with the #653 entry.
 - Content (Appendix A) is ordinary page content; page revisions keep the previous body.
 
 ## 10. Verification plan
@@ -212,7 +222,54 @@ unchanged. Completeness test covers the keys.
   merge remains the human approval of the change itself.
 - **Authorised by:** repository owner (@laboef1900), in the task prompt for #653.
 - **Expiry:** at final PR handoff or abandonment of #653.
-- **Design approval:** _recorded below by the coordinator after review._
+- **Design approval:** r1 (`c5ec35b`) CHANGES REQUIRED by omp · `openai-codex/gpt-6-astra` (Orca
+  dispatch `ctx_89e2c815f706`); r2 resubmitted. Final decision recorded below.
+
+## 12. Review r1 resolutions (normative for implementation)
+
+**F1 — reload confirmation scopes.** Reload (from either sub-editor, any locale) computes the dirty
+scopes across the whole page: `equipment` (any locale dirty) and `portrait` (any locale's photo or
+alt differs from saved).
+- Only equipment dirty → the existing `aboutGearReloadConfirm` dialog and copy, unchanged (existing
+  assertions stay).
+- Portrait dirty (alone or with equipment) → a new combined confirmation
+  (`editor.chrome.aboutIdentityReloadConfirm*` keys, both locales) naming the affected fields and
+  locales that will be discarded.
+- Nothing dirty → reload without a dialog.
+- Cancel keeps both drafts untouched. Confirm then failed GET → load-failed state, drafts kept.
+- A successful save never repaints or discards the other sub-editor's draft (only its own saved value
+  and the shared revision change).
+- Tests: dirty portrait + equipment-Reload; dirty equipment + portrait-Reload; cancel; confirm;
+  confirm-then-failed-GET; equipment-only dirty still shows the old dialog.
+
+**F2 — single operation owner.** The shared controller owns one `busy` operation for all identity
+saves and reloads across both sub-editors and all locales, acquired synchronously before any
+confirmation dialog or request. While busy, every identity Save/Reload button is disabled; inputs stay
+editable and unrelated drafts are preserved. No automatic retry. Each operation carries a token; only
+the current token's response is applied. On PUT success the controller adopts the acknowledged
+patch (the normalized value it sent for that field/locale, plus the returned `revision`/`savedAt`;
+the PUT returns no identity). On uncertain outcome (network/5xx) drafts are kept and the revision is
+not advanced. Tests with deferred responses: overlapping save attempts (second refused while first is
+in flight, no false 409), reload vs. in-flight save, then consecutive equipment→portrait saves
+succeed with the advanced revision.
+
+**F3 — rollback:** §9 rewritten (offline writers, empty-map hazard, explicit rebuild, dump path).
+Tests: old-format rows/dumps (key absent) load; empty, populated and inactive-only portrait maps
+round-trip through dump restore; foreign-origin restored portrait builds with no external hostname in
+emitted `srcset`/`src`.
+
+**F4 — runbook:** Appendix A apply steps rewritten against the actual controls; descriptions are
+reference-only; production application is an owner step, distinct from the PR.
+
+**F5 — M4 corrected** (§4); variant-suffix rejection test required.
+
+**Other reviewer guidance adopted:** `ABOUT_PORTRAIT_SIZES` derives from the *card* column's inner
+width (grid width after gutters and gap ÷ 3.2 × 1, minus card padding and border), min'd with 20 rem
+below `lg`, with breakpoint-edge and narrow-phone tests; I2 byte-identity in all four language modes;
+hostile alt (quotes/markup) render assertions; no other locale's portrait used as fallback; settings
+tests for text save, asset-then-text save, and stale revision not resurrecting a removed portrait;
+focus returns to the trigger after picker Cancel/Escape; alt over-limit shown without `maxlength`
+truncation.
 
 ## Appendix A: migrated About content
 
@@ -223,10 +280,20 @@ DE *Knowledge* heading translated, *Meine Vorhaben* translated for EN, "read mor
 line removed (footer social links cover Instagram). The old `## Simon` heading is dropped: the card
 carries the name.
 
-Apply (owner, after deploy, in the admin): upload both photos to the media library and set their
-alt text; open Pages → About; per locale paste title, description and body; insert the Trübsee photo
-with the photo tool where marked; choose the portrait and alt text in the Portrait section; Save &
-rebuild.
+Apply (owner-operated production migration, after deploy, in the admin; not part of the PR):
+
+1. Media library: upload both photos and set their DE/EN alt text (table below).
+2. Pages → About, for each active locale: set the title; paste the body; replace the marker comment
+   with the Trübsee photo inserted via the photo tool (the marker must not ship).
+3. In the same panel's Portrait section: Choose from library → the portrait; check the alt text;
+   **Save portrait** and wait for the saved confirmation (it is saved separately from page text).
+4. Save the page / Save & rebuild, then verify both public About pages (portrait, alt, inline photo,
+   no mixed language).
+
+The descriptions below are **reference-only**: the About editor has no description control and this
+issue does not add one (the page falls back to its existing description behaviour). The PR delivers
+the capability and this runbook; AC1 is complete for production only after the owner has applied it.
+The isolated E2E pass exercises this exact sequence.
 
 ### Photos
 
