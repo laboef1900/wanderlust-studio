@@ -3,6 +3,7 @@ import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { editorDocument } from './editor-dom-harness.js';
 import { ui } from '../../site/src/i18n/ui.js';
+import type { IdentityPortraitMap } from '../../site/src/lib/site-identity.js';
 
 const html = readFileSync('public/settings.html', 'utf8');
 const source = readFileSync('public/settings-identity.js', 'utf8');
@@ -23,6 +24,7 @@ async function settle() { for (let index = 0; index < 12; index++) await Promise
 async function page(options: {
   locales?: ('de' | 'en')[]; language?: 'de' | 'en'; assets?: { logo: boolean; favicon: boolean };
   canonicalOrigin?: string | null;
+  snapshot?: () => { revision: number; aboutPortrait: IdentityPortraitMap };
   route?: (request: Request) => Response | Promise<Response>; confirm?: boolean;
 } = {}) {
   const dom = editorDocument(html.slice(0, html.indexOf('<script')));
@@ -62,7 +64,8 @@ async function page(options: {
       if (url === '/rebuild/status') return Response.json({ running: null, last: null, live: null, record: 'missing' });
       if (request.method === 'GET') {
         const data = initial(options.locales);
-        return Response.json({ ...data, ...(options.assets ? { assets: options.assets } : {}), identity: { ...data.identity,
+        const snapshot = options.snapshot?.() ?? { revision: data.revision, aboutPortrait: {} };
+        return Response.json({ ...data, revision: snapshot.revision, ...(options.assets ? { assets: options.assets } : {}), identity: { ...data.identity, aboutPortrait: snapshot.aboutPortrait,
           canonicalOrigin: options.canonicalOrigin === undefined ? data.identity.canonicalOrigin : options.canonicalOrigin } });
       }
       return options.route?.(request) ?? Response.json({ revision: 8, takesEffect: 'next_build', assets: { logo: true, favicon: false } });
@@ -98,6 +101,45 @@ async function page(options: {
 }
 
 describe('Site identity settings form', () => {
+  const portrait = { src: 'https://img.example/photos/simon', width: 800, height: 1200, alt: 'Simon in Zürich', focus: { x: 35, y: 40 }, format: 'jpeg' as const };
+  it.each([false, true])('passes through only active portraits on text save (asset saved first: %s)', async (saveAsset) => {
+    const h = await page({ locales: ['en'], snapshot: () => ({ revision: 7,
+      aboutPortrait: { de: { ...portrait, alt: 'Nicht mitsenden' }, en: portrait } }) });
+    h.edit('identityAuthorName', 'New author');
+    if (saveAsset) { h.choose('logo'); await h.click('identity-logo-upload'); }
+    await h.submit();
+    const sent = JSON.parse(h.requests.at(-1)!.body!);
+    expect(sent).toMatchObject({ revision: saveAsset ? 8 : 7, identity: { authorName: 'New author' } });
+    expect(sent.identity.aboutPortrait).toEqual({ en: portrait });
+  });
+
+  it('cannot resurrect a portrait removed in another editor, including after conflict reload', async () => {
+    let removed = false;
+    const h = await page({ snapshot: () => ({ revision: removed ? 8 : 7, aboutPortrait: removed ? {} : { en: portrait } }),
+      route: (request) => JSON.parse(request.body!).revision === 7
+        ? Response.json({ code: 'identity_conflict' }, { status: 409 }) : Response.json({ revision: 9 }) });
+    removed = true;
+    h.edit('identitySiteName', 'Pending');
+    await h.submit();
+    expect(h.el('identityStatus').textContent).toBe(copy.identityConflict);
+    await h.submit();
+    expect(h.requests.filter((r) => r.method === 'PUT')).toHaveLength(1);
+    await h.click('identityReload');
+    h.edit('identitySiteName', 'Reapplied');
+    await h.submit();
+    expect(JSON.parse(h.requests.at(-1)!.body!)).toMatchObject({ revision: 8, identity: { siteName: 'Reapplied' } });
+    expect(JSON.parse(h.requests.at(-1)!.body!).identity.aboutPortrait).toEqual({});
+  });
+
+  it('announces a refused portrait without marking unrelated settings inputs invalid', async () => {
+    const h = await page({ route: () => Response.json({ code: 'invalid_identity', field: 'aboutPortrait.en' }, { status: 400 }) });
+    h.edit('identitySiteName', 'Pending');
+    await h.submit();
+    expect(h.el('identityStatus').textContent).toBe(copy.identityRefused);
+    expect(h.el('identitySiteName').getAttribute('aria-invalid')).toBeNull();
+    expect(h.leave()).toBe(true);
+  });
+
   it('warns before leaving a changed identity, retains protection after failure, and clears it only after save', async () => {
     let fail = true;
     const h = await page({ route: () => fail

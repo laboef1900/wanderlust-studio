@@ -2467,14 +2467,15 @@ body.page-editor .page-manuscript .rich-text-editor .tiptap,
 body.page-editor .page-manuscript .EasyMDEContainer .CodeMirror-lines { margin-inline: 0; }
 /* About Me equipment line (#514): site identity with its own save, set off from the
    page body by a hairline. */
-.about-gear { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
-.about-gear > .section-label { margin-top: 0; }
-.about-gear > label { margin-top: 0.875rem; }
-.about-gear__count { font-variant-numeric: tabular-nums; }
-.about-gear > .err { margin: 0.375rem 0 0; }
-.about-gear > .form-actions { margin-top: 0.875rem; }
-.about-gear > .muted:empty { display: none; }
-.about-gear__timing { max-width: 70ch; }
+.about-gear, .about-profile { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+:is(.about-gear, .about-profile) > .section-label { margin-top: 0; }
+:is(.about-gear, .about-profile) > label { margin-top: 0.875rem; }
+.about-gear__count, .about-profile__count { font-variant-numeric: tabular-nums; }
+:is(.about-gear, .about-profile) > .err { margin: 0.375rem 0 0; }
+:is(.about-gear, .about-profile) > .form-actions { margin-top: 0.875rem; }
+:is(.about-gear, .about-profile) > .muted:empty { display: none; }
+.about-gear__timing, .about-profile__timing { max-width: 70ch; }
+.about-profile__preview { object-fit: cover; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .cms-masthead {
   grid-column: 1 / -1;
   display: flex;

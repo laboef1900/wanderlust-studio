@@ -414,6 +414,38 @@ describe('withPublicLocaleMetadata batching', () => {
   });
 });
 describe('site identity administration', () => {
+  it('allows only admins to change portraits, checks the configured path and preserves unchanged restored entries', async () => {
+    const base = 'https://images.example/library';
+    const restored = { src: 'https://old.example/library/photos/author', alt: 'Author', width: 640, height: 960 };
+    const language = memoryLanguageStore({ primary: 'en', locales: ['en'] });
+    const identityStore = memorySiteIdentityStore({ ...neutralIdentity(), aboutPortrait: { en: restored, de: restored } }, language);
+    const b = build({ identityStore, language, baseUrl: base + '/' });
+    try {
+      const admin = await authed(b, true), author = await authed(b, false);
+      const hosted = { ...restored, src: `${base}/photos/new` };
+      const save = (revision: number, aboutPortrait: object, cookies = admin) => b.app.inject({
+        method: 'PUT', url: '/settings/identity', cookies,
+        payload: { revision, identity: { ...neutralIdentity(), siteName: 'Updated', aboutPortrait } },
+      });
+      expect((await save(1, { en: hosted }, author)).statusCode).toBe(403);
+      expect((await save(1, { en: { ...restored, alt: ' Author ' } })).statusCode).toBe(200);
+      for (const changed of [
+        { ...restored, alt: 'Changed' }, { ...restored, src: 'https://third.example/library/author' },
+        { ...restored, src: 'https://images.example/library-other/author' },
+        { ...restored, src: `${base}/${'a/'.repeat(9)}photo` },
+      ]) {
+        const refused = await save(2, { en: changed });
+        expect(refused.statusCode).toBe(400);
+        expect(refused.json()).toMatchObject({ code: 'invalid_identity', field: 'aboutPortrait.en' });
+      }
+      expect((await save(2, { de: hosted })).statusCode).toBe(400);
+      expect((await save(2, { en: hosted })).statusCode).toBe(200);
+      expect(identityStore.get().identity.aboutPortrait).toEqual({ de: restored, en: hosted });
+      expect((await save(3, {})).statusCode).toBe(200);
+      expect((await save(3, { en: hosted })).statusCode).toBe(409);
+      expect(identityStore.get().identity.aboutPortrait).toEqual({ de: restored });
+    } finally { await b.app.close(); }
+  });
   it('checks both actual image roles on save, then exposes normalized canonical and clearing immediately', async () => {
     const identityStore = memorySiteIdentityStore();
     const b = build({ identityStore, baseUrl: 'https://cdn.example/assets', imgHost: 'IMAGES.example:443' });

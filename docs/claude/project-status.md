@@ -4,6 +4,20 @@ Moved verbatim from `CLAUDE.md`. Paths are relative to the repository root. Add 
 
 ## Project Status and Remaining Phases
 
+- **Implemented (issue #653, 2026-11-26): Optional About profile portraits.** Pages → About
+  saves each enabled language's library portrait and alt independently from the manuscript.
+  Portrait and equipment share one revision; Settings preserves portraits. The next rebuild
+  replaces the compass only in locales with a portrait. The original About copy and photo
+  insertion steps are in [Appendix A](../superpowers/specs/2026-11-26-issue-653-about-portrait-and-content.md#appendix-a-migrated-about-content);
+  applying that content on production is an owner action, not part of deployment.
+  **Rollback:** stop the new app (all identity writers offline) and take and verify a database
+  dump. Even an empty `aboutPortrait` key is unknown to the previous release. Run
+  `UPDATE site_identity SET localized = localized - 'aboutPortrait' WHERE id = true;`
+  before starting the previous image. Explicitly **Rebuild site now** and verify the compass:
+  boot retains the last public release. Do not delete releases or `/data`. To recover a dump
+  containing the new key, restore with the new reader first, stop it, then follow the same
+  offline UPDATE, downgrade and rebuild. Manuscript edits have ordinary page revisions.
+
 - **Implemented (issue #626, 2026-11-19): Harness sees scripts assigned through `innerHTML`.**
   The editor DOM harness (`uploader/test/editor-dom-harness.ts`) keeps a terminated
   `<script>…</script>` assigned through an element's `innerHTML` as an inert node in that

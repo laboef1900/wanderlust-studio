@@ -9,6 +9,7 @@ export const LEGACY_IDENTITY: Identity = {
   tagline: { de: 'Reiseabenteuer & Geschichten', en: 'Travel adventures & stories' },
   aboutRole: { de: 'Reisender & Autor', en: 'Traveler & Storyteller' },
   aboutGear: { de: 'Leica Q2 · analoge Canon AE-1 · Notizbuch', en: 'Leica Q2 · analog Canon AE-1 · notebook' },
+  aboutPortrait: {},
   studioDescriptor: { de: 'Simons Reisetagebuch', en: 'Simon’s travel journal' },
   socialLinks: [{ label: 'Instagram', url: 'https://www.instagram.com/simonswanderlust' }],
 };

@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS site_identity (
   site_name        text NOT NULL DEFAULT '' CHECK (char_length(site_name) <= 80),
   author_name      text NOT NULL DEFAULT '' CHECK (char_length(author_name) <= 80),
   canonical_origin text CHECK (canonical_origin IS NULL OR char_length(canonical_origin) <= 300),
-  localized        jsonb NOT NULL DEFAULT '{}', -- { tagline, aboutRole, aboutGear, studioDescriptor }: { de?, en? }
+  localized        jsonb NOT NULL DEFAULT '{}', -- locale maps: tagline, aboutRole, aboutGear, aboutPortrait (#653), studioDescriptor
   social_links     jsonb NOT NULL DEFAULT '[]'  -- [{ label, url }], ≤ 6
 );
 CREATE TABLE IF NOT EXISTS site_identity_assets (
@@ -294,6 +294,7 @@ content, lives in Postgres.
 | `tagline` | per-locale | no | 0–160 | render `site.taglineFallback` |
 | `aboutRole` | per-locale | no | 0–80 | omit the role line |
 | `aboutGear` | per-locale | no | 0–200 | omit the footer gear line and the About equipment block |
+| `aboutPortrait` ([#653 extension](2026-11-26-issue-653-about-portrait-and-content.md)) | per-locale | no | hosted variant base, dimensions, alt 1–300, optional format/focus | retain the compass on this locale's About card |
 | `studioDescriptor` | per-locale | no | 0–80 | admin shows `siteName`, else the site-name fallback |
 | `socialLinks` | shared, ordered | no | 0–6 entries; label 1–40; URL ≤ 2048 | no links rendered |
 | `canonicalOrigin` | shared | no | serialized origin, §7.2 | unconfigured mode (O5) |
@@ -305,7 +306,8 @@ never from a seed (§12.1).
 
 ### 5.2 Per-locale shape and single-language installs
 
-A **stored locale map** is `{ de?: string; en?: string }`. Only `de` and `en` are valid
+A **stored text map** is `{ de?: string; en?: string }`; the portrait map uses the same keys
+with `AboutPortrait` objects instead of strings (see #653's contract). Only `de` and `en` are valid
 keys, regardless of which locales are enabled. Every present value, including an inactive
 one, must pass the same type, normalization and length rules (§5.3). Disabled does not mean
 unvalidated. Neither key is required, and validation never manufactures a missing key.
@@ -381,6 +383,7 @@ Inside `runOnce` → `lock.runExclusive`, before `buildAndDeploy` starts the chi
      tagline: Partial<Record<'de'|'en', string>>;
      aboutRole: Partial<Record<'de'|'en', string>>;
      aboutGear: Partial<Record<'de'|'en', string>>;
+     aboutPortrait: Partial<Record<'de'|'en', AboutPortrait>>; // #653
      socialLinks: { label: string; url: string }[];
      assets: {
        logo: { path: string; width: number; height: number } | null;   // '/_identity/logo-<sha256[0:16]>.png'

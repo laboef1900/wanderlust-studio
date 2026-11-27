@@ -1,4 +1,6 @@
 import type pg from 'pg';
+import { isDeepStrictEqual } from 'node:util';
+import { hostedImageKey } from './hosted-image-key.js';
 import { IdentityError, IDENTITY_LOCALIZED_FIELDS, normalizeIdentity, neutralIdentity, type Identity, type IdentityLocale } from '../../site/src/lib/site-identity.js';
 import { LEGACY_IDENTITY } from './site-identity-legacy.js';
 import { memoryLanguageStore, readLanguage, type LanguageStore } from './language.js';
@@ -30,7 +32,7 @@ function assetState(roles: readonly string[]): IdentityAssetState {
 export interface SiteIdentityStore {
   /** A detached cached record; request-time reads never touch Postgres. */
   get(): IdentityRecord;
-  update(revision: number, input: unknown): Promise<IdentityRecord>;
+  update(revision: number, input: unknown, imageBase?: string): Promise<IdentityRecord>;
   getAssetState(): IdentityAssetState;
   replaceAssets(revision: number, group: IdentityAssetGroup, assets: readonly StoredIdentityAsset[]): Promise<IdentityRecord>;
 }
@@ -53,7 +55,7 @@ function localized(identity: Identity) {
   return Object.fromEntries(IDENTITY_LOCALIZED_FIELDS.map((field) => [field, identity[field]]));
 }
 /** Active edits cannot overwrite retained locale values. */
-export function mergeIdentityEdit(current: Identity, input: unknown, locales: readonly IdentityLocale[] = ['de', 'en']): Identity {
+export function mergeIdentityEdit(current: Identity, input: unknown, locales: readonly IdentityLocale[] = ['de', 'en'], imageBase?: string): Identity {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new IdentityError('identity');
   const value = input as Record<string, unknown>;
   const merged: Record<string, unknown> = { ...value };
@@ -63,7 +65,17 @@ export function mergeIdentityEdit(current: Identity, input: unknown, locales: re
     for (const key of Object.keys(map)) if (!locales.includes(key as IdentityLocale)) throw new IdentityError(field);
     merged[field] = { ...Object.fromEntries(Object.entries(current[field]).filter(([locale]) => !locales.includes(locale as IdentityLocale))), ...map };
   }
-  return normalizeIdentity(merged);
+  const next = normalizeIdentity(merged);
+  // Compare against the revision-locked row, not the request-time cache. A restored
+  // portrait keeps working after a host change until that entry itself is edited.
+  for (const locale of locales) {
+    const portrait = next.aboutPortrait[locale];
+    if (!portrait || isDeepStrictEqual(portrait, current.aboutPortrait[locale])) continue;
+    if (!imageBase) throw new IdentityError(`aboutPortrait.${locale}`);
+    try { hostedImageKey(portrait.src, imageBase); }
+    catch { throw new IdentityError(`aboutPortrait.${locale}`); }
+  }
+  return next;
 }
 /** Onboarding must read the saved predicate on its own transaction snapshot, not the cache. */
 export async function identityConfigured(db: Pick<pg.PoolClient, 'query'>): Promise<boolean> {
@@ -129,7 +141,7 @@ export async function pgSiteIdentityStore(pool: pg.Pool): Promise<SiteIdentitySt
         throw error;
       } finally { client.release(); }
     },
-    async update(revision, input) {
+    async update(revision, input, imageBase) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -137,7 +149,7 @@ export async function pgSiteIdentityStore(pool: pg.Pool): Promise<SiteIdentitySt
         const locked = await client.query<IdentityRow>('SELECT * FROM site_identity WHERE id = true FOR UPDATE');
         const row = locked.rows[0];
         if (!row || row.revision !== revision) throw new IdentityConflictError();
-        const next = mergeIdentityEdit(identityFromRow(row), input, language.locales);
+        const next = mergeIdentityEdit(identityFromRow(row), input, language.locales, imageBase);
         const result = await client.query<IdentityRow>(`UPDATE site_identity SET site_name=$1, author_name=$2,
           localized=$3::jsonb, social_links=$4::jsonb, canonical_origin=$5, revision=revision+1, saved_at=now(), updated_at=now()
           WHERE id = true RETURNING *`, [next.siteName, next.authorName, JSON.stringify(localized(next)), JSON.stringify(next.socialLinks), next.canonicalOrigin]);
@@ -167,10 +179,10 @@ export function memorySiteIdentityStore(identity: Identity = neutralIdentity(), 
       current = { ...current, revision: revision + 1 };
       return structuredClone(current);
     },
-    async update(revision, input) {
+    async update(revision, input, imageBase) {
       return language.runExclusive(async (mode) => {
       if (revision !== current.revision) throw new IdentityConflictError();
-      current = { ...current, revision: revision + 1, savedAt: new Date().toISOString(), identity: mergeIdentityEdit(current.identity, input, mode.locales) };
+      current = { ...current, revision: revision + 1, savedAt: new Date().toISOString(), identity: mergeIdentityEdit(current.identity, input, mode.locales, imageBase) };
       return structuredClone(current);
       });
     },

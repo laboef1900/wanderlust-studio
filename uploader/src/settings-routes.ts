@@ -248,7 +248,7 @@ export function registerSettingsRoutes(ctx: ServerContext): void {
       if (typeof body.revision !== 'number' || !Number.isInteger(body.revision) || body.revision < 1) throw new IdentityError('revision');
       if (!isPlainObject(body.identity)) throw new IdentityError('identity');
       validateCanonicalRoles(body.identity.canonicalOrigin, cfg);
-      const saved = await cfg.identityStore.update(body.revision, body.identity);
+      const saved = await cfg.identityStore.update(body.revision, body.identity, ctx.imageBase);
       return { revision: saved.revision, savedAt: saved.savedAt, takesEffect: 'next_build' };
     } catch (error) {
       if (error instanceof IdentityError) return reply.code(400).send({ code: error.code, field: error.field, error: error.message });

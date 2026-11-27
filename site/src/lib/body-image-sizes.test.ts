@@ -6,7 +6,7 @@ import rehypeStringify from 'rehype-stringify';
 import { visit } from 'unist-util-visit';
 import type { Element } from 'hast';
 import {
-  ABOUT_BODY_SIZES, PREVIEW_BODY_SIZES, STORY_BODY_SIZES, STORY_OPENING_SIZES,
+  ABOUT_BODY_SIZES, ABOUT_PORTRAIT_SIZES, PREVIEW_BODY_SIZES, STORY_BODY_SIZES, STORY_OPENING_SIZES,
   resizeBodyImages, transformBodyImages,
 } from './body-images.js';
 import { COLUMN_WIDTH } from './gallery-layout.js';
@@ -15,18 +15,20 @@ import { renderMarkdown } from './render-markdown.js';
 const html5 = unified().use(rehypeParse, { fragment: true }).use(rehypeStringify);
 
 // Evaluate the emitted sizes clauses, not a parallel production slot calculator.
-// Deliberately accept only rem/vw lengths and additive calc, with a 16px root.
+// Deliberately accept only the units and min/calc expressions these layouts use.
 function slot(sizes: string, viewport: number): number {
-  for (const clause of sizes.split(',')) {
+  for (const clause of sizes.split(/, (?![\d.]+rem\))/)) {
     const match = clause.trim().match(/^(?:\(min-width: ([\d.]+)rem\) )?(.+)$/);
     if (!match) throw new Error(`Unsupported sizes clause: ${clause}`);
     if (match[1] && viewport < Number(match[1]) * 16) continue;
+    const capped = match[2]!.match(/^min\((calc\(.+\)), ([\d.]+rem)\)$/);
+    if (capped) return Math.min(slot(capped[1]!, viewport), slot(capped[2]!, viewport));
     const expression = match[2]!.replace(/^calc\((.*)\)$/, '$1');
-    const terms = [...expression.matchAll(/([+-]?)\s*([\d.]+)(rem|vw)/g)];
+    const terms = [...expression.matchAll(/([+-]?)\s*([\d.]+)(rem|vw|px)/g)];
     if (terms.map(term => term[0]).join('').replace(/\s/g, '') !== expression.replace(/\s/g, '')) {
       throw new Error(`Unsupported sizes length: ${expression}`);
     }
-    return terms.reduce((sum, term) => sum + (term[1] === '-' ? -1 : 1) * Number(term[2]) * (term[3] === 'rem' ? 16 : viewport / 100), 0);
+    return terms.reduce((sum, term) => sum + (term[1] === '-' ? -1 : 1) * Number(term[2]) * (term[3] === 'rem' ? 16 : term[3] === 'px' ? 1 : viewport / 100), 0);
   }
   throw new Error('No applicable source size');
 }
@@ -53,6 +55,11 @@ describe('inline image layout envelopes', () => {
   it.each([767, 768, 1023, 1024, 1095, 1096, 1152, 1600])('uses the current About grid at viewport %i', (viewport) => {
     const expected = viewport < 1024 ? viewport - 40 : (Math.min(viewport, 1152) - 88) * 2.2 / 3.2;
     expect(slot(ABOUT_BODY_SIZES, viewport)).toBeCloseTo(expected);
+  });
+
+  it.each([320, 409, 410, 411, 768, 1023, 1024, 1151, 1152, 1600])('fits the About profile card at viewport %i', viewport => {
+    const cardWidth = viewport < 1024 ? viewport - 40 : (Math.min(viewport, 1152) - 40 - 48) / 3.2;
+    expect(slot(ABOUT_PORTRAIT_SIZES, viewport)).toBeCloseTo(Math.min(320, cardWidth - 48 - 2));
   });
 
   it.each([375, 735, 736, 767, 768, 1024, 1152])('fits standalone preview main at viewport %i', (viewport) => {

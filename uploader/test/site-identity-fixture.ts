@@ -7,7 +7,7 @@ export function identityDumpRow(identity: Identity = neutralIdentity()): Record<
     updated_at: '2026-10-27T12:00:00.000Z', site_name: identity.siteName,
     author_name: identity.authorName, canonical_origin: identity.canonicalOrigin,
     localized: { tagline: identity.tagline, aboutRole: identity.aboutRole,
-      aboutGear: identity.aboutGear, studioDescriptor: identity.studioDescriptor },
+      aboutGear: identity.aboutGear, aboutPortrait: identity.aboutPortrait, studioDescriptor: identity.studioDescriptor },
     social_links: identity.socialLinks,
   };
 }

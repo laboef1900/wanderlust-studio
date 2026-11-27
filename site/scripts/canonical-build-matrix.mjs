@@ -51,7 +51,7 @@ if (process.argv[2] === '--build-child') {
     const snapshot = {
       v: 1, locales: language.locales, canonicalOrigin,
       siteName: 'Canonical matrix journal', authorName: 'Fixture author',
-      tagline: {}, aboutRole: {}, aboutGear: {}, socialLinks: [],
+      tagline: {}, aboutRole: {}, aboutGear: {}, aboutPortrait: {}, socialLinks: [],
       assets: { logo: null, favicon: null },
     };
     await runBuild(output, join(root, `cache-${name}`), {

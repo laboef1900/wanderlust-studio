@@ -1,223 +1,224 @@
-// The About Me editor's equipment line (#514). It is identity.aboutGear, not page
-// content: the admin-only GET/PUT /settings/identity contract stays the only writer.
-// A save reads nothing new — it sends the identity loaded with its revision, with one
-// locale's line replaced, projected to the active locales (the server keeps retained
-// disabled-locale text). A stale revision is a visible conflict that keeps the typed
-// text until an explicit reload; it is never retried or overwritten silently.
-window.AboutEquipment = (function () {
-  const MAX = 200;
-  const LOCALES = ['de', 'en'];
-  const isRecord = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
+// The About profile editors share a single identity revision. The manuscript has
+// its own draft and save path; neither a profile edit nor its acknowledgement
+// may touch that draft (or another locale's pending profile input).
+window.AboutIdentity = (function () {
+  const locales = ['de', 'en'];
+  const record = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
   const format = (text, values) => text.replace(/\{(\w+)\}/g, (match, name) => String(values[name] ?? match));
-
-  // The same text rule as normalizeIdentity (site/src/lib/site-identity.ts): NFC, no
-  // control/format characters, and the limit counts trimmed code points, not UTF-16.
   function measure(value) {
-    const normalized = String(value).normalize('NFC');
-    return { normalized: normalized.trim(), plain: !/\p{C}/u.test(normalized), count: [...normalized.trim()].length };
+    const nfc = value.normalize('NFC');
+    return { normalized: nfc.trim(), plain: !/\p{C}/u.test(nfc), count: [...nfc.trim()].length };
   }
 
-  // The whole loaded identity, every locale map limited to the active locales, with
-  // only aboutGear[locale] replaced. Pure, so the request shape is testable on its own.
-  function payload(loaded, locale, value) {
-    const identity = JSON.parse(JSON.stringify(loaded.identity));
-    for (const [field, map] of Object.entries(identity)) {
-      if (isRecord(map)) identity[field] = Object.fromEntries(Object.entries(map).filter(([key]) => loaded.locales.includes(key)));
-    }
-    identity.aboutGear = { ...identity.aboutGear, [locale]: value };
-    return { revision: loaded.revision, identity };
+  function equipment({ el, copy }) {
+    const input = el('');
+    el('Heading').textContent = copy.identityAboutGear;
+    el('Settings').textContent = copy.aboutGearSettings;
+    return {
+      input, entry: input, max: 200,
+      read: () => input.value,
+      normalize: (value) => measure(value).normalized,
+      write: (value) => { input.value = value ?? ''; },
+      dirty: (saved) => input.value !== (saved ?? ''),
+      lock: (locked) => { input.disabled = locked; },
+    };
   }
-
-  function valid(data) {
-    return isRecord(data) && Number.isInteger(data.revision) && data.revision >= 1
-      && Array.isArray(data.locales) && data.locales.length > 0 && data.locales.every((locale) => LOCALES.includes(locale))
-      && isRecord(data.identity) && isRecord(data.identity.aboutGear);
-  }
+  const fields = { Gear: equipment };
 
   function init(options) {
-    const $ = (id) => document.getElementById(id);
     const copy = EditorCopy[document.documentElement.lang === 'de' ? 'de' : 'en'];
     let loaded = null;
     let state = 'loading';
-    let busy = false;
-    let conflicted = false;
+    let operation = null;
     let unloadGuarded = false;
-    // Before the identity answers, the site's language mode decides which panels show.
-    const shown = () => (loaded ? loaded.locales : options.locales).filter((locale) => $(locale + 'GearSection'));
-    const saved = (locale) => loaded?.identity.aboutGear[locale] ?? '';
-    const dirty = (locale) => !!loaded && $(locale + 'Gear').value !== saved(locale);
+    const panels = [];
+    const shown = (p) => (loaded?.locales ?? options.locales).includes(p.locale);
+    const saved = (p) => loaded?.identity[p.field][p.locale];
+    const dirtyPanels = () => panels.filter((p) => loaded && shown(p) && p.dirty(saved(p)));
 
-    for (const locale of LOCALES) {
-      if (!$(locale + 'GearSection')) continue;
-      $(locale + 'GearHeading').textContent = copy.identityAboutGear;
-      $(locale + 'GearHelp').textContent = copy.aboutGearHelp;
-      $(locale + 'GearLabel').textContent = format(copy.aboutGearLabel, { code: locale.toUpperCase() });
-      $(locale + 'GearSave').textContent = copy.aboutGearSave;
-      $(locale + 'GearTiming').textContent = copy.aboutGearTiming;
-      $(locale + 'GearSettings').textContent = copy.aboutGearSettings;
-      // The page's own draft guard listens on <main>; this line is not page content,
-      // so its edits must neither dirty the page nor block its Preview/Publish.
-      for (const type of ['input', 'change']) $(locale + 'GearSection').addEventListener(type, (event) => event.stopPropagation());
-      $(locale + 'Gear').addEventListener('input', () => edited(locale));
-      $(locale + 'GearSave').addEventListener('click', () => save(locale));
-      $(locale + 'GearReload').addEventListener('click', () => reload(locale));
+    for (const [kind, create] of Object.entries(fields)) {
+      const field = 'about' + kind;
+      for (const locale of locales) {
+        const el = (suffix) => document.getElementById(locale + kind + suffix);
+        const msg = (suffix) => copy[field + suffix];
+        const p = create({ el, copy, locale, onUnauthed: options.onUnauthed, edited: () => edited(p) });
+        Object.assign(p, { el, locale, field, msg });
+        panels.push(p);
+        el('Help').textContent = msg('Help');
+        el('Label').textContent = format(msg('Label'), { code: locale.toUpperCase() });
+        el('Save').textContent = msg('Save');
+        el('Timing').textContent = msg('Timing');
+        for (const type of ['input', 'change']) el('Section').addEventListener(type, (event) => event.stopPropagation());
+        p.input.addEventListener('input', () => edited(p));
+        el('Save').addEventListener('click', () => save(p));
+        el('Reload').addEventListener('click', () => reload(p));
+      }
     }
 
-    function status(locale, text) { $(locale + 'GearStatus').textContent = text; }
-    // Only a problem with the typed text marks the field invalid; a conflict or an
-    // unconfirmed save is about the request, not the input.
-    function error(locale, text, field = false) {
-      $(locale + 'GearError').textContent = text;
-      $(locale + 'GearError').hidden = !text;
-      if (text && field) $(locale + 'Gear').setAttribute('aria-invalid', 'true');
-      else $(locale + 'Gear').removeAttribute('aria-invalid');
+    function error(p, text, invalid = false) {
+      p.el('Error').textContent = text;
+      p.el('Error').hidden = !text;
+      if (invalid) p.input.setAttribute('aria-invalid', 'true');
+      else p.input.removeAttribute('aria-invalid');
     }
-    function count(locale) {
-      const { count: length } = measure($(locale + 'Gear').value);
-      $(locale + 'GearCount').textContent = length > MAX
-        ? format(copy.aboutGearOver, { count: length, max: MAX, over: length - MAX })
-        : format(copy.aboutGearCount, { count: length, max: MAX });
+    function count(p) {
+      const { count } = measure(p.input.value);
+      p.el('Count').textContent = format(p.msg(count > p.max ? 'Over' : 'Count'), { count, max: p.max, over: count - p.max });
+    }
+    function problem(p) {
+      const { count, plain } = measure(p.input.value);
+      if (!plain) return p.msg('Plain');
+      if (p.input.required && !count) return p.msg('Required');
+      return count > p.max ? format(p.msg('TooLong'), { count, max: p.max, over: count - p.max }) : '';
     }
     function paint() {
-      for (const locale of LOCALES) {
-        const section = $(locale + 'GearSection');
-        if (!section) continue;
-        section.hidden = !shown().includes(locale);
-        $(locale + 'Gear').disabled = busy || state !== 'ready';
-        $(locale + 'GearSave').disabled = busy || state !== 'ready' || conflicted;
-        $(locale + 'GearReload').hidden = !conflicted && state !== 'unavailable';
-        $(locale + 'GearReload').disabled = busy;
-        $(locale + 'GearReload').textContent = state === 'unavailable' ? copy.aboutGearRetry : copy.aboutGearReload;
-        count(locale);
+      for (const p of panels) {
+        p.el('Section').hidden = !shown(p);
+        const locked = !!operation || !['ready', 'conflict'].includes(state);
+        p.lock(locked);
+        p.el('Save').disabled = locked || state === 'conflict';
+        p.el('Reload').hidden = state !== 'conflict' && state !== 'unavailable';
+        p.el('Reload').disabled = !!operation || state === 'forbidden';
+        p.el('Reload').textContent = state === 'unavailable' ? copy.aboutGearRetry : p.msg('Reload');
       }
     }
-    function every(callback) { for (const locale of LOCALES) if ($(locale + 'GearSection')) callback(locale); }
-
-    function edited(locale) {
-      count(locale);
-      if (!conflicted) error(locale, '');
-      status(locale, dirty(locale) ? copy.aboutGearUnsaved : '');
-      // Installed on first edit only: an untouched line needs no unload prompt.
-      if (!unloadGuarded) {
-        unloadGuarded = true;
-        window.addEventListener('beforeunload', (event) => {
-          if (!shown().some(dirty)) return;
-          event.preventDefault();
-          event.returnValue = '';
-        });
-      }
-    }
-
-    async function load() {
-      busy = true;
-      state = 'loading';
+    function edited(p) {
+      if (state !== 'conflict') error(p, '');
+      p.el('Status').textContent = p.dirty(saved(p)) ? p.msg('Unsaved') : '';
+      count(p);
       paint();
-      every((locale) => { status(locale, copy.aboutGearLoading); error(locale, ''); });
+      if (unloadGuarded) return;
+      unloadGuarded = true;
+      window.addEventListener('beforeunload', (event) => {
+        if (!dirtyPanels().length) return;
+        event.preventDefault();
+        event.returnValue = '';
+      });
+    }
+    function begin() {
+      operation = Symbol();
+      paint();
+      return operation;
+    }
+    function finish(token, origin, target) {
+      if (operation !== token) return;
+      operation = null;
+      paint();
+      if (target) target.focus();
+      else if (origin && (!document.activeElement || document.activeElement === document.body || document.activeElement === origin)) origin.focus();
+    }
+    function announceState(next, message) {
+      state = next;
+      for (const p of panels) {
+        p.el('Status').textContent = '';
+        error(p, p.msg(message));
+      }
+    }
+    async function load(token) {
+      state = 'loading';
+      for (const p of panels) { p.el('Status').textContent = p.msg('Loading'); error(p, ''); }
       try {
         const response = await fetch('/settings/identity', { cache: 'no-store' });
+        if (operation !== token) return;
         if (response.status === 401) { options.onUnauthed(); return; }
-        if (response.status === 403) { state = 'forbidden'; return; }
+        if (response.status === 403) { announceState('forbidden', 'Forbidden'); return; }
         const data = response.ok ? await response.json() : null;
-        if (!valid(data)) throw new Error('identity_unavailable');
-        loaded = { revision: data.revision, locales: data.locales, identity: data.identity };
-        conflicted = false;
+        if (operation !== token) return;
+        if (!Number.isInteger(data?.revision) || data.revision < 1 || !Array.isArray(data.locales) || !data.locales.length
+          || !data.locales.every((l) => locales.includes(l)) || !panels.every((p) => record(data.identity?.[p.field]))) {
+          throw new Error('identity_unavailable');
+        }
+        loaded = data;
         state = 'ready';
-        for (const locale of shown()) $(locale + 'Gear').value = saved(locale);
-      } catch {
-        state = 'unavailable';
-      } finally {
-        busy = false;
-        paint();
-        every((locale) => {
-          status(locale, '');
-          if (state === 'unavailable') error(locale, copy.aboutGearLoadFailed);
-          if (state === 'forbidden') error(locale, copy.aboutGearForbidden);
-        });
+        for (const p of panels) {
+          p.el('Status').textContent = '';
+          if (shown(p)) { p.write(saved(p)); count(p); }
+        }
+      } catch { if (operation === token) announceState('unavailable', 'LoadFailed'); }
+    }
+
+    function reloadQuestion() {
+      const dirty = dirtyPanels();
+      if (!dirty.length) return null;
+      if (dirty.every((p) => p.field === 'aboutGear')) {
+        return { title: copy.aboutGearReload, body: copy.aboutGearReloadConfirm, confirmLabel: copy.aboutGearReload };
       }
+      const scopes = dirty.map((p) => `${p.el('Heading').textContent} (${p.locale.toUpperCase()})`);
+      return { title: copy.aboutIdentityReloadConfirmTitle, body: format(copy.aboutIdentityReloadConfirmBody, { scopes: scopes.join(', ') }),
+        confirmLabel: copy.aboutIdentityReloadConfirmAction };
     }
-
-    function invalid(value) {
-      const result = measure(value);
-      if (!result.plain) return copy.aboutGearPlain;
-      if (result.count > MAX) return format(copy.aboutGearTooLong, { count: result.count, max: MAX, over: result.count - MAX });
-      return '';
-    }
-
-    // Disabling the control that started a request drops keyboard focus to <body>.
-    // An outcome that needs attention takes focus; otherwise the origin gets it back,
-    // unless the author has moved to another control meanwhile.
-    function settleFocus(origin, target) {
-      const active = document.activeElement;
-      if (target) target.focus();
-      else if (origin && (!active || active === document.body || active === origin)) origin.focus();
-    }
-
-    async function save(locale) {
-      if (busy || conflicted || state !== 'ready') return;
+    async function reload(p) {
+      if (operation || state === 'forbidden') return;
       const origin = document.activeElement;
-      const input = $(locale + 'Gear');
-      const value = input.value;
-      const problem = invalid(value);
-      if (problem) { error(locale, problem, true); status(locale, ''); input.focus(); return; }
-      error(locale, '');
-      busy = true;
-      paint();
-      status(locale, copy.aboutGearSaving);
-      let focus = null;
+      const token = begin();
+      let target;
+      try {
+        const question = reloadQuestion();
+        if (question && !await AdminConfirm.ask(question)) return;
+        await load(token);
+        if (p) target = state === 'ready' ? p.entry : state === 'forbidden' ? p.el('Error') : p.el('Reload');
+      } finally { finish(token, p && origin, target); }
+    }
+    function payload(p, value) {
+      const identity = { ...loaded.identity };
+      for (const [key, map] of Object.entries(identity)) {
+        if (record(map)) identity[key] = Object.fromEntries(Object.entries(map).filter(([l]) => loaded.locales.includes(l)));
+      }
+      if (value === undefined) delete identity[p.field][p.locale];
+      else identity[p.field][p.locale] = value;
+      return { revision: loaded.revision, identity };
+    }
+    async function save(p) {
+      if (operation || state !== 'ready' || !shown(p)) return;
+      const invalid = problem(p);
+      if (invalid) { error(p, invalid, true); p.el('Status').textContent = ''; p.input.focus(); return; }
+      const origin = document.activeElement;
+      const token = begin();
+      const value = p.read();
+      let target;
+      error(p, '');
+      p.el('Status').textContent = p.msg('Saving');
       try {
         const response = await fetch('/settings/identity', {
-          method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload(loaded, locale, value)),
+          method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload(p, value)),
         });
+        if (operation !== token) return;
         if (response.status === 401) { options.onUnauthed(); return; }
         const result = await response.json().catch(() => null);
-        status(locale, '');
+        if (operation !== token) return;
+        p.el('Status').textContent = '';
         if (response.status === 409 && result?.code === 'identity_conflict') {
-          conflicted = true;
-          every((other) => error(other, copy.aboutGearConflict));
-          focus = $(locale + 'GearReload');
-        } else if (response.status === 400 && result?.code === 'invalid_identity') {
-          // Field paths come from the server's fixed validation contract, never the submitted value.
-          const field = typeof result.field === 'string' ? result.field : 'identity';
-          const own = field === 'aboutGear.' + locale;
-          error(locale, own ? invalid(value) || copy.aboutGearPlain : format(copy.aboutGearOtherInvalid, { field }), own);
-          if (own) focus = input;
+          announceState('conflict', 'Conflict');
+          target = p.el('Reload');
         } else if (response.status === 403) {
-          error(locale, copy.aboutGearForbidden);
-        } else if (!response.ok || !Number.isInteger(result?.revision)) {
-          error(locale, copy.aboutGearFailed);
-          focus = $(locale + 'GearSave');
+          announceState('forbidden', 'Forbidden');
+          target = p.el('Error');
+        } else if (response.status === 400 && result?.code === 'invalid_identity') {
+          const field = typeof result.field === 'string' ? result.field : 'identity';
+          const own = field === p.field + '.' + p.locale;
+          const gearText = own && p.field === 'aboutGear';
+          error(p, own ? (gearText ? p.msg('Plain') : p.msg('HostRefused')) : format(p.msg('OtherInvalid'), { field }), gearText);
+          target = gearText ? p.input : p.el('Error');
+        } else if (!response.ok || !Number.isInteger(result?.revision) || result.revision <= loaded.revision) {
+          throw new Error('unconfirmed');
         } else {
-          const stored = measure(value).normalized;
+          const stored = p.normalize ? p.normalize(value) : value;
+          if (stored === undefined) delete loaded.identity[p.field][p.locale];
+          else loaded.identity[p.field][p.locale] = stored;
           loaded.revision = result.revision;
-          loaded.identity.aboutGear[locale] = stored;
-          input.value = stored;
-          status(locale, stored ? copy.aboutGearSaved : copy.aboutGearCleared);
+          loaded.savedAt = result.savedAt;
+          p.write(stored);
+          count(p);
+          p.el('Status').textContent = p.msg(stored ? 'Saved' : 'Cleared');
         }
       } catch {
-        status(locale, '');
-        error(locale, copy.aboutGearFailed);
-        focus = $(locale + 'GearSave');
-      } finally {
-        busy = false;
-        paint();
-        settleFocus(origin, focus);
-      }
+        if (operation !== token) return;
+        p.el('Status').textContent = '';
+        error(p, p.msg('Failed'));
+        target = p.el('Save');
+      } finally { finish(token, origin, target); }
     }
-
-    async function reload(locale) {
-      if (busy) return;
-      const origin = document.activeElement;
-      if (shown().some(dirty) && !await AdminConfirm.ask({
-        title: copy.aboutGearReload, body: copy.aboutGearReloadConfirm, confirmLabel: copy.aboutGearReload,
-      })) return;
-      await load();
-      // A refusal hides Retry and leaves nothing to operate; its message takes focus instead.
-      settleFocus(origin, state === 'ready' ? $(locale + 'Gear') : state === 'forbidden' ? $(locale + 'GearError') : null);
-    }
-
-    paint();
-    return load();
+    return reload();
   }
-
-  return { init, payload };
+  return { init, measure, register(kind, create) { fields[kind] = create; } };
 })();

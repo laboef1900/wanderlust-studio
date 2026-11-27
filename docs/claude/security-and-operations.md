@@ -41,8 +41,8 @@ Full security model: `SECURITY.md`. These patterns MUST be preserved when changi
   database content, not just at write boundaries.
 - **Configuration** — Do NOT grow `.env`. Operational app settings live in a JSON settings
   store on the data volume (`uploader/src/settings.ts`, atomic-rename writes), managed via
-  admin Settings. Site identity (names, localized text, social links and the reserved canonical
-  origin/logo/favicon fields) lives in Postgres with content and travels in DB dumps.
+  admin Settings. Site identity (names, localized text and About portraits, social links and
+  canonical origin/logo/favicon fields) lives in Postgres with content and travels in DB dumps.
   `.env` is reserved for bootstrap values (`DATABASE_URL`/`POSTGRES_PASSWORD`, `PUBLIC_BASE_URL` —
   see `uploader/.env.example`). `SITE_IDENTITY_JSON` and `SITE_DATABASE_SNAPSHOT` are internal,
   unconditionally builder-set values, never operator settings.
@@ -54,6 +54,9 @@ Full security model: `SECURITY.md`. These patterns MUST be preserved when changi
   Asset APIs/rendering remain #275; canonical editing/SEO, comment-origin wiring and unconfigured
   noindex remain #276. Do not widen #274 into those children or claim their controls are active.
   See the approved 2026-10-27 identity spec and `docs/site-identity-branding-allowlist.md`.
+  For #653, a changed portrait needs a canonical variant base under the install's image
+  origin/base path and a safe key. Preserve unchanged entries across host changes; validate
+  portable dump values and retarget the active portrait to the build's current image origin.
 
 ### 2. Framework and Output Safety
 

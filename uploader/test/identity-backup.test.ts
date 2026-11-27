@@ -52,7 +52,7 @@ describe('identity dump version and full-storage validation', () => {
     const row = readDump(await save(dump)).tables.site_identity![0]!;
     expect(row.site_name).toBe('Café');
     expect(row.localized).toEqual({ tagline: { de: 'Deutsch', en: 'Retained English' },
-      aboutRole: { en: 'Writer' }, aboutGear: {}, studioDescriptor: {} });
+      aboutRole: { en: 'Writer' }, aboutGear: {}, aboutPortrait: {}, studioDescriptor: {} });
   });
 
   const malformedRows: [string, unknown][] = [

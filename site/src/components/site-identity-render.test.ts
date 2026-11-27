@@ -7,6 +7,8 @@ import RegionPage from './pages/RegionPage.astro';
 import FeaturedHero from './FeaturedHero.astro';
 import { identity } from '../lib/build-identity';
 import { neutralIdentity, parseIdentitySnapshot, toIdentitySnapshot } from '../lib/site-identity';
+import { ABOUT_PORTRAIT_SIZES } from '../lib/body-images';
+import type { SiteLanguage } from '../lib/site-language';
 import { blogPostingJsonLd } from '../lib/seo';
 import { GET as feed } from '../pages/[...locale]/rss.xml';
 import type { Locale } from '../i18n/ui';
@@ -25,7 +27,10 @@ const legacy = {
 };
 const windows: Window[] = [];
 beforeEach(() => { Object.assign(identity, parseIdentitySnapshot(undefined)); });
-afterEach(async () => { await Promise.all(windows.splice(0).map((window) => window.happyDOM.close())); });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
+});
 
 function documentOf(html: string) {
   const window = new Window();
@@ -37,11 +42,14 @@ function feedDocument(xml: string) {
   windows.push(window);
   return new window.DOMParser().parseFromString(xml, 'application/xml');
 }
-async function about(locale: Locale) {
+async function aboutHtml(locale: Locale) {
   const container = await AstroContainer.create();
-  return documentOf(await container.renderToString(AboutPage, {
+  return container.renderToString(AboutPage, {
     props: { locale }, request: new Request('https://example.com/about/'),
-  }));
+  });
+}
+async function about(locale: Locale) {
+  return documentOf(await aboutHtml(locale));
 }
 
 const story = {
@@ -49,6 +57,62 @@ const story = {
   image: { src: 'https://img.example.com/hero', width: 1600, height: 900, alt: 'Landscape' },
   url: 'https://example.com/a-journey/',
 };
+
+describe('About portrait plate', () => {
+  const modes: SiteLanguage[] = [
+    { primary: 'de', locales: ['de', 'en'] }, { primary: 'en', locales: ['en', 'de'] },
+    { primary: 'de', locales: ['de'] }, { primary: 'en', locales: ['en'] },
+  ];
+  const image = { src: 'https://restored.example/photos/author', width: 1600, height: 2000,
+    alt: 'Author"><img src=x onerror=alert(1)>', focus: { x: 65, y: 25 } };
+
+  it.each(modes)('keeps the original compass bytes for each enabled locale in $primary / $locales', async mode => {
+    vi.stubEnv('SITE_LANGUAGE_JSON', JSON.stringify(mode));
+    // Captured from the pre-portrait profile with author A and role B.
+    const compassHeader = '<div class="flex items-center gap-4"> <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-navy text-white shadow-md"> '
+      + '<svg aria-hidden="true" focusable="false" class="h-7 w-7 text-brand-red-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"> '
+      + '<circle cx="12" cy="12" r="10"></circle> <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon> </svg> </div> '
+      + '<div class="min-w-0"> <h2 class="text-xl font-extrabold text-navy">A</h2> <p class="font-mono text-xs font-semibold tracking-widest text-brand-red uppercase"> B </p> </div> </div>';
+    for (const locale of mode.locales) {
+      const saved = { ...neutralIdentity(), authorName: 'A', aboutRole: { [locale]: 'B' } };
+      Object.assign(identity, toIdentitySnapshot(saved, mode.locales));
+      const original = await aboutHtml(locale);
+      expect(original.replace(/ data-astro-source-(?:file|loc)="[^"]*"/g, '')).toContain(compassHeader);
+      const other = locale === 'de' ? 'en' : 'de';
+      Object.assign(identity, toIdentitySnapshot({ ...saved, aboutPortrait: { [other]: image } }, mode.locales));
+      expect(await aboutHtml(locale)).toBe(original);
+    }
+  });
+
+  it.each(['de', 'en'] as const)('renders only the %s portrait with safe alt and retargeted variants', async locale => {
+    vi.stubEnv('PUBLIC_BASE_URL', 'https://media.example');
+    const german = { ...image, src: 'https://old.example/photos/de', alt: 'Deutsches Porträt', format: 'jpeg' as const };
+    const saved = { ...neutralIdentity(), ...legacy, aboutPortrait: { de: german, en: image } };
+    Object.assign(identity, parseIdentitySnapshot(JSON.stringify(toIdentitySnapshot(saved))));
+    const doc = await about(locale);
+    const card = doc.querySelector('main h2')!.parentElement!.parentElement!.parentElement!;
+    const img = card.querySelector('picture img')!;
+    const entry = saved.aboutPortrait[locale];
+    const base = 'https://media.example' + new URL(entry.src).pathname;
+    expect(img.getAttribute('src')).toBe(`${base}-1280.${locale === 'de' ? 'jpeg' : 'webp'}`);
+    expect(img.getAttribute('alt')).toBe(entry.alt);
+    expect(img.getAttribute('width')).toBe('1600');
+    expect(img.getAttribute('height')).toBe('2000');
+    expect(img.getAttribute('style')).toContain('object-position:65% 25%');
+    expect(img.getAttribute('loading')).toBe('eager');
+    expect(img.getAttribute('decoding')).toBe('async');
+    expect(card.querySelector('svg, [onerror]')).toBeNull();
+    expect(card.querySelectorAll('img')).toHaveLength(1);
+    const sources = [...card.querySelectorAll('picture source')];
+    expect(sources.map(source => source.getAttribute('type'))).toEqual(locale === 'de' ? ['image/jpeg'] : ['image/avif', 'image/webp']);
+    for (const source of sources) {
+      const format = source.getAttribute('type')!.split('/')[1];
+      expect(source.getAttribute('sizes')).toBe(ABOUT_PORTRAIT_SIZES);
+      expect(source.getAttribute('srcset')).toBe([640, 1280, 1600].map(w => `${base}-${w}.${format} ${w}w`).join(', '));
+    }
+    expect(card.textContent).toContain(legacy.aboutGear[locale]);
+  });
+});
 
 describe('configured identity rendered at public escaping boundaries', () => {
   it.each(['de', 'en'] as const)('keeps legal links independent of configured social profiles in %s', async (locale) => {
