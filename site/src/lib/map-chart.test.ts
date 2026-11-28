@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapChart, shortPinTitle, TARGET_ASPECT, type ChartInput } from './map-chart';
+import { mapChart, pinPill, shortPinTitle, TARGET_ASPECT, type ChartInput, type PinPill } from './map-chart';
 
 const CORPUS: ChartInput[] = [
   { lng: 26.1025, lat: 44.4268, title: 'Bukarest' },
@@ -152,5 +152,61 @@ describe('shortPinTitle', () => {
     expect(shortPinTitle('Reisebericht: 4 Tage Bukarest', 20)).toBe('Reisebericht: 4…');
     expect(shortPinTitle('Sonne und Abenteuer auf Rhodos', 20)).toBe('Sonne und Abenteuer…');
     expect(shortPinTitle('Donaudeltaundschwarzesmeer', 12)).toBe('Donaudeltau…');
+  });
+});
+
+describe('pinPill', () => {
+  const chart = { width: 1000, height: 450 };
+  // Endpoints of the straight `L` segments only; arc parameters are not points.
+  const lineTo = (d: string) =>
+    [...d.matchAll(/L(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  // The tail base corners sit on the side facing the pin; both must stay on the straight run.
+  const expectTailBaseOnStraightRun = (pill: PinPill) => {
+    const side = pill.below ? pill.top : pill.bottom;
+    const r = (pill.bottom - pill.top) / 2;
+    for (const [x, y] of lineTo(pill.d)) {
+      if (y !== side) continue;
+      expect(x).toBeGreaterThanOrEqual(pill.left + r);
+      expect(x).toBeLessThanOrEqual(pill.right - r);
+    }
+  };
+
+  it('hangs above the pin with its tail tip on the pin', () => {
+    const pill = pinPill({ x: 500, y: 200 }, 'Rhodes', chart);
+    expect(pill.below).toBe(false);
+    expect(pill.bottom).toBeLessThan(192);
+    expect(pill.textY).toBe((pill.top + pill.bottom) / 2);
+    expect(lineTo(pill.d)).toContainEqual([500, 192]);
+  });
+
+  it('flips below a pin near the top edge', () => {
+    const pill = pinPill({ x: 500, y: 20 }, 'Rhodes', chart);
+    expect(pill.below).toBe(true);
+    expect(pill.top).toBeGreaterThan(28);
+    expect(lineTo(pill.d)).toContainEqual([500, 28]);
+  });
+
+  it('keeps the whole rounded body inside the frame near the side edges while still pointing at the pin', () => {
+    for (const x of [2, 998]) {
+      const pill = pinPill({ x, y: 200 }, 'Sonne und Abenteuer…', chart);
+      expect(pill.left).toBeGreaterThanOrEqual(4);
+      expect(pill.right).toBeLessThanOrEqual(996);
+      expect(lineTo(pill.d)).toContainEqual([x, 192]);
+      expectTailBaseOnStraightRun(pill);
+    }
+  });
+
+  it('keeps a straight run wide enough for the tail on a one-character label', () => {
+    for (const label of ['', 'A']) {
+      const pill = pinPill({ x: 500, y: 200 }, label, chart);
+      expectTailBaseOnStraightRun(pill);
+      expect(lineTo(pill.d)).toContainEqual([500, 192]);
+    }
+  });
+
+  it('leaves the padding clear for a title set in wide capitals', () => {
+    // Inter 600 at font size 22 measured this label at 282 units in the browser.
+    const pill = pinPill({ x: 500, y: 200 }, 'MÜNCHEN WOCHENENDE', chart);
+    expect(pill.right - pill.left).toBeGreaterThanOrEqual(282 + 2 * 16);
   });
 });

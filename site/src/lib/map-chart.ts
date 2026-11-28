@@ -232,3 +232,71 @@ export function shortPinTitle(title: string, maxChars = 20): string {
   const head = lastSpace >= Math.floor(maxChars / 2) ? cut.slice(0, lastSpace) : cut;
   return `${head.replace(/[\s,:;–—-]+$/u, '')}…`;
 }
+
+/** Font size of the teaser pin pill in viewBox units; MapTeaser scales the whole pill at `lg`. */
+export const PILL_FONT_SIZE = 22;
+// Inter 600 advances, measured at font size 22: lowercase, digits and spaces run
+// ≤0.55em, capitals ~0.71em (`MÜNCHEN WOCHENENDE` is 282 units). Rounded up, so
+// text never reaches the rounded ends.
+const PILL_GLYPH_WIDTH = 0.56 * PILL_FONT_SIZE;
+const PILL_CAPITAL_WIDTH = 0.74 * PILL_FONT_SIZE;
+const PILL_PAD_X = 16;
+const PILL_HEIGHT = 40;
+const PILL_TAIL = 10; // tail length
+const PILL_TAIL_HALF = 9; // half the tail's base
+const PILL_GAP = 8; // tail tip to the pin centre, clears the 4.5-unit dot
+const PILL_EDGE = 4; // minimum distance to the chart frame
+// Narrowest pill whose straight run still holds the whole tail base between the rounded ends.
+const PILL_MIN_WIDTH = PILL_HEIGHT + 2 * PILL_TAIL_HALF;
+
+export interface PinPill {
+  /** One closed outline: rounded pill plus the tail whose tip sits on the pin. */
+  d: string;
+  /** Text centre (use `text-anchor="middle"` and `dy="0.35em"`). */
+  textX: number;
+  textY: number;
+  /** True when the pill hangs below the pin because there is no room above it. */
+  below: boolean;
+  /** Bounding box of the rounded pill body, tail excluded. */
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Geometry of the hover pill for a teaser pin. The pill sits above the pin
+ * (below it when the top of the chart would clip it), slides sideways to stay
+ * inside the frame, and its tail always points at the pin itself.
+ */
+export function pinPill(pin: { x: number; y: number }, label: string, chart: { width: number; height: number }): PinPill {
+  const textWidth = [...label].reduce(
+    (sum, ch) => sum + (ch !== ch.toLowerCase() ? PILL_CAPITAL_WIDTH : PILL_GLYPH_WIDTH),
+    0,
+  );
+  const width = Math.max(Math.round(textWidth + 2 * PILL_PAD_X), PILL_MIN_WIDTH);
+  const r = PILL_HEIGHT / 2;
+  const left = round(Math.min(Math.max(pin.x - width / 2, PILL_EDGE), chart.width - width - PILL_EDGE));
+  const right = round(left + width);
+  const below = pin.y - PILL_GAP - PILL_TAIL - PILL_HEIGHT < PILL_EDGE;
+  const dir = below ? 1 : -1;
+  const tip = round(pin.y + dir * PILL_GAP);
+  const edge = round(tip + dir * PILL_TAIL); // the pill side the tail grows from
+  const far = round(edge + dir * PILL_HEIGHT);
+  // Keep the tail base on the straight run of the pill, even when the pin is near a frame edge.
+  const baseX = round(Math.min(Math.max(pin.x, left + r + PILL_TAIL_HALF), right - r - PILL_TAIL_HALF));
+  const tipX = round(pin.x);
+  const top = Math.min(edge, far);
+  const bottom = Math.max(edge, far);
+  const arcs = `A${r} ${r} 0 0 1 ${left + r} ${top}`;
+  // Clockwise from the top-left end of the straight top run.
+  const topRun = below
+    ? `L${baseX - PILL_TAIL_HALF} ${top} L${tipX} ${tip} L${baseX + PILL_TAIL_HALF} ${top} L${right - r} ${top}`
+    : `L${right - r} ${top}`;
+  const bottomRun = below
+    ? `L${left + r} ${bottom}`
+    : `L${baseX + PILL_TAIL_HALF} ${bottom} L${tipX} ${tip} L${baseX - PILL_TAIL_HALF} ${bottom} L${left + r} ${bottom}`;
+  const d =
+    `M${left + r} ${top} ${topRun} A${r} ${r} 0 0 1 ${right - r} ${bottom} ${bottomRun} ${arcs} Z`;
+  return { d, textX: round(left + width / 2), textY: round((top + bottom) / 2), below, left, right, top, bottom };
+}

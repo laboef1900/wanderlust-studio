@@ -72,9 +72,23 @@ describe('HomePage navigation and MapTeaser pins', () => {
     expect(pinLinks[0]?.getAttribute('href')).toBe(pathOf(tripA));
     expect(pinLinks[0]?.getAttribute('aria-label')).toBe(tripA.data.title);
     expect(pinLinks[0]?.querySelector('title')?.textContent).toBe(tripA.data.title);
-    expect(pinLinks[0]?.querySelector('text')?.textContent?.trim()).toBe('4-day travel…');
-
     expect(pinLinks[1]?.getAttribute('href')).toBe(pathOf(tripB));
-    expect(pinLinks[1]?.querySelector('text')?.textContent?.trim()).toBe('Rhodes');
+
+    // Pills paint after every pin so no later dot covers them; each repeats its
+    // pin's link for the pointer only and stays out of the tab order and a11y tree.
+    const pills = [...chartSvg.querySelectorAll('a.chart-pin-pill-link')];
+    expect(pills).toHaveLength(2);
+    const lastPin = pinLinks[1]!;
+    for (const pill of pills) {
+      expect(lastPin.compareDocumentPosition(pill) & 4 /* DOCUMENT_POSITION_FOLLOWING */).toBeTruthy();
+      expect(pill.getAttribute('tabindex')).toBe('-1');
+      expect(pill.getAttribute('aria-hidden')).toBe('true');
+    }
+    expect(pills[0]?.getAttribute('href')).toBe(pathOf(tripA));
+    expect(pills[0]?.getAttribute('data-pin')).toBe(pinLinks[0]?.getAttribute('data-pin'));
+    expect(pills[0]?.querySelector('text')?.textContent?.trim()).toBe('4-day travel…');
+    expect(pills[1]?.getAttribute('href')).toBe(pathOf(tripB));
+    expect(pills[1]?.getAttribute('data-pin')).toBe(pinLinks[1]?.getAttribute('data-pin'));
+    expect(pills[1]?.querySelector('text')?.textContent?.trim()).toBe('Rhodes');
   });
 });
