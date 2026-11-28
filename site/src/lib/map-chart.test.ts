@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapChart, shortPinTitle, TARGET_ASPECT, type ChartInput } from './map-chart';
+import { mapChart, pinPill, shortPinTitle, TARGET_ASPECT, type ChartInput } from './map-chart';
 
 const CORPUS: ChartInput[] = [
   { lng: 26.1025, lat: 44.4268, title: 'Bukarest' },
@@ -152,5 +152,35 @@ describe('shortPinTitle', () => {
     expect(shortPinTitle('Reisebericht: 4 Tage Bukarest', 20)).toBe('Reisebericht: 4…');
     expect(shortPinTitle('Sonne und Abenteuer auf Rhodos', 20)).toBe('Sonne und Abenteuer…');
     expect(shortPinTitle('Donaudeltaundschwarzesmeer', 12)).toBe('Donaudeltau…');
+  });
+});
+
+describe('pinPill', () => {
+  const chart = { width: 1000, height: 450 };
+  const points = (d: string) =>
+    [...d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+
+  it('hangs above the pin with its tail tip on the pin', () => {
+    const pill = pinPill({ x: 500, y: 200 }, 'Rhodes', chart);
+    expect(pill.below).toBe(false);
+    expect(pill.textY).toBeLessThan(200);
+    expect(points(pill.d)).toContainEqual([500, 192]);
+  });
+
+  it('flips below a pin near the top edge', () => {
+    const pill = pinPill({ x: 500, y: 20 }, 'Rhodes', chart);
+    expect(pill.below).toBe(true);
+    expect(pill.textY).toBeGreaterThan(20);
+    expect(points(pill.d)).toContainEqual([500, 28]);
+  });
+
+  it('stays inside the frame near the side edges while still pointing at the pin', () => {
+    for (const x of [2, 998]) {
+      const pill = pinPill({ x, y: 200 }, 'Sonne und Abenteuer…', chart);
+      const xs = points(pill.d).map(([px]) => px!);
+      expect(Math.min(...xs)).toBeGreaterThanOrEqual(0);
+      expect(Math.max(...xs)).toBeLessThanOrEqual(1000);
+      expect(points(pill.d)).toContainEqual([x, 192]);
+    }
   });
 });

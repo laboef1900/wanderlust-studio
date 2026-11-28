@@ -2,7 +2,7 @@
 import { getCollection } from 'astro:content';
 import { useTranslations, type Locale } from '../i18n/ui';
 import { byLocale, pathOf, statsLine, tripStats } from '../lib/trips';
-import { mapChart, shortPinTitle } from '../lib/map-chart';
+import { mapChart, pinPill, shortPinTitle } from '../lib/map-chart';
 import { mapPath } from '../lib/paths';
 
 interface Props {
@@ -161,7 +161,8 @@ const anchorFor = (at: number, width: number) =>
             ))}
           </g>
           {chart.pins.map((pin) => {
-            const alignEnd = pin.x > chart.width * 0.72;
+            const label = shortPinTitle(pin.title);
+            const pill = pinPill(pin, label, chart);
             return (
               <a
                 href={pin.href}
@@ -171,15 +172,13 @@ const anchorFor = (at: number, width: number) =>
                 <title>{pin.title}</title>
                 <circle cx={pin.x} cy={pin.y} r="14" fill="transparent" />
                 <circle class="chart-pin-dot" cx={pin.x} cy={pin.y} r="4.5" fill="currentColor" />
-                <text
-                  x={alignEnd ? pin.x - 9 : pin.x + 9}
-                  y={pin.y}
-                  dy="0.35em"
-                  text-anchor={alignEnd ? 'end' : 'start'}
-                  class="chart-pin-label"
-                >
-                  {shortPinTitle(pin.title)}
-                </text>
+                {/* Scales toward the pin it points at, so the `lg` shrink keeps the tail on the dot. */}
+                <g class="chart-pin-pill" style={`transform-origin: ${pin.x}px ${pin.y}px`}>
+                  <path d={pill.d} class="chart-pin-pill-plate" />
+                  <text x={pill.textX} y={pill.textY} dy="0.35em" text-anchor="middle" class="chart-pin-label">
+                    {label}
+                  </text>
+                </g>
               </a>
             );
           })}
@@ -235,9 +234,8 @@ const anchorFor = (at: number, width: number) =>
       font-size: 20px;
       stroke-width: 3px;
     }
-    .chart-pin-label {
-      font-size: 15px;
-      stroke-width: 3px;
+    .chart-pin-pill {
+      scale: 0.68;
     }
   }
   .chart-pin {
@@ -247,23 +245,40 @@ const anchorFor = (at: number, width: number) =>
   .chart-pin:focus-visible {
     outline: 2px solid var(--color-brand-red-light, #ff5a4e);
   }
+  /* Hover/focus pill: an opaque off-white plate (the opaque-plate rule) with a
+   * tail on the pin, geometry from `pinPill` in map-chart.ts. The plate is
+   * canvas tinted 8% toward navy so it reads as paper, not a white hole in the
+   * navy band; navy text on it is far above AA. */
+  .chart-pin-pill {
+    transform-box: view-box;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+  }
+  .chart-pin-pill-plate {
+    fill: color-mix(in srgb, var(--color-canvas, #fbfbfd) 92%, var(--color-navy, #142a42));
+    stroke: var(--color-navy, #142a42);
+    stroke-opacity: 0.25;
+    stroke-width: 1.5px;
+    filter: drop-shadow(0 4px 8px rgb(0 0 0 / 0.35));
+  }
   .chart-pin-label {
     font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
     font-weight: 600;
     font-size: 22px;
-    fill: #ffffff;
-    paint-order: stroke fill;
-    stroke: var(--color-navy, #142a42);
-    stroke-width: 4px;
-    stroke-linejoin: round;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 150ms ease, fill 150ms ease;
+    fill: var(--color-navy, #142a42);
+  }
+  .chart-pin:hover .chart-pin-pill,
+  .chart-pin:focus-visible .chart-pin-pill {
+    opacity: 1;
   }
   .chart-pin:hover .chart-pin-label,
   .chart-pin:focus-visible .chart-pin-label {
-    opacity: 1;
-    fill: var(--color-brand-red-light, #ff5a4e);
     text-decoration: underline;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chart-pin-pill {
+      transition: none;
+    }
   }
 </style>
